@@ -16,6 +16,37 @@ class GenerateResponse(BaseModel):
     code: str
 
 
+class AgentGenerateRequest(BaseModel):
+    prompt: str = Field(min_length=1, description="Natural language task")
+    model: str | None = Field(default=None, description="Optional model override")
+    mode: str | None = Field(
+        default="clarify_then_generate",
+        description="Agent mode override: direct_generation|clarify_then_generate|generate_then_repair",
+    )
+    assumption: str | None = Field(
+        default=None,
+        description="Optional accepted assumption: raw_lua|json_with_lua_wrappers",
+    )
+    feedback: str | None = Field(
+        default=None,
+        description="Optional follow-up instruction for minimal-delta repair.",
+    )
+    previous_code: str | None = Field(
+        default=None,
+        description="Previous code to repair when feedback is provided.",
+    )
+
+
+class AgentGenerateResponse(BaseModel):
+    status: str
+    code: str | None = None
+    question: str | None = None
+    acceptable_assumptions: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    output_contract: str | None = None
+    used_repair: bool = False
+
+
 class HealthResponse(BaseModel):
     status: str
     ollama_ok: bool

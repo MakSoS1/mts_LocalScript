@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import re
+
 from app.validators.types import ValidationIssue, ValidationReport
 
 
 def _has_all(code: str, items: list[str]) -> bool:
     lowered = code.lower()
     return all(item.lower() in lowered for item in items)
+
+
+KEEP_ONLY_FIELDS_WRONG_LOGIC_RE = re.compile(
+    r'if\s+key\s*==\s*["\']id["\']\s+or\s+key\s*==\s*["\']entity_id["\']\s+or\s+key\s*==\s*["\']call["\']',
+    re.IGNORECASE,
+)
+ISO_TO_UNIX_OS_TIME_STRING_RE = re.compile(
+    r"os\.time\s*\(\s*wf\.initvariables\.recalltime\s*\)",
+    re.IGNORECASE,
+)
 
 
 def validate_task_specific(code: str, task_type: str | None) -> ValidationReport:
@@ -46,6 +58,15 @@ def validate_task_specific(code: str, task_type: str | None) -> ValidationReport
                 validator="task",
             )
         )
+    if task_type == "keep_only_fields" and KEEP_ONLY_FIELDS_WRONG_LOGIC_RE.search(code):
+        issues.append(
+            ValidationIssue(
+                code="task_keep_only_fields_wrong_logic",
+                message="Detected logic that removes required keys instead of keeping them",
+                hint="Delete keys only when they are NOT ID/ENTITY_ID/CALL.",
+                validator="task",
+            )
+        )
 
     if task_type == "datum_time_to_iso" and not _has_all(
         lowered, ["wf.vars.json.idoc.zcdf_head.datum", "wf.vars.json.idoc.zcdf_head.time", "string.format"]
@@ -65,6 +86,15 @@ def validate_task_specific(code: str, task_type: str | None) -> ValidationReport
                 code="task_iso_to_unix_missing_pattern",
                 message="Expected recallTime unix conversion pattern",
                 hint="Read wf.initVariables.recallTime and return unix timestamp.",
+                validator="task",
+            )
+        )
+    if task_type == "iso_to_unix" and ISO_TO_UNIX_OS_TIME_STRING_RE.search(code):
+        issues.append(
+            ValidationIssue(
+                code="task_iso_to_unix_direct_os_time",
+                message="Detected direct os.time(path) conversion that ignores ISO parsing details",
+                hint="Parse ISO-8601 components (including timezone) before epoch conversion.",
                 validator="task",
             )
         )

@@ -6,6 +6,7 @@ from app.config import Settings
 from app.core.model_client import OllamaClient
 from app.core.planner import TaskPlan, plan_task
 from app.core.prompts import (
+    build_feedback_repair_messages,
     build_generation_messages,
     build_repair_messages,
 )
@@ -33,6 +34,21 @@ class GenerationResult:
     plan: TaskPlan
 
 
+@dataclass(slots=True)
+class AgentIterationResult:
+    status: str
+    code: str | None
+    model: str
+    request_mode: str
+    benchmark_mode: str
+    used_repair: bool
+    validation: ValidationBundle | None
+    question: str | None = None
+    acceptable_assumptions: list[str] | None = None
+    assumptions: list[str] | None = None
+    output_contract: str | None = None
+
+
 class Orchestrator:
     def __init__(self, settings: Settings, client: OllamaClient, retriever: LocalRetriever):
         self.settings = settings
@@ -49,6 +65,24 @@ class Orchestrator:
         if len(prompt) > 280:
             return "generate_then_repair"
         return "direct_generation"
+
+    def clarification_assumptions(self, plan: TaskPlan) -> list[str]:
+        assumptions: list[str] = []
+        if plan.output_contract == "json_with_lua_wrappers":
+            assumptions.append("json_with_lua_wrappers")
+            assumptions.append("raw_lua")
+        else:
+            assumptions.append("raw_lua")
+            assumptions.append("json_with_lua_wrappers")
+        return assumptions
+
+    def clarification_question(self, plan: TaskPlan) -> str:
+        if not plan.target_paths:
+            return (
+                "Нужен формат ответа: raw Lua или JSON с lua{...}lua wrappers? "
+                "Также уточните целевой путь wf.vars/wf.initVariables, если он обязателен."
+            )
+        return "Нужен формат ответа: raw Lua или JSON с lua{...}lua wrappers?"
 
     def resolve_benchmark_mode(self, mode: str | None) -> str:
         if not mode:
@@ -68,7 +102,7 @@ class Orchestrator:
         return True, True, True
 
     def generate(self, prompt: str, model: str | None = None, mode: str | None = None) -> GenerationResult:
-        model_name = model or self.settings.default_model
+        model_name = (model or self.settings.default_model).strip()
         self.client.ensure_model_allowed(model_name)
 
         request_mode_override = (
@@ -103,7 +137,7 @@ class Orchestrator:
             raw_output,
             output_contract,
             preferred_keys=plan.output_keys,
-            force_json_wrap=plan.confidence >= 0.85,
+            force_json_wrap=(output_contract == "json_with_lua_wrappers"),
         )
         first_validation = run_all_validators(
             first_code,
@@ -135,7 +169,7 @@ class Orchestrator:
                 repaired_output,
                 output_contract,
                 preferred_keys=plan.output_keys,
-                force_json_wrap=plan.confidence >= 0.85,
+                force_json_wrap=(output_contract == "json_with_lua_wrappers"),
             )
             repaired_validation = run_all_validators(
                 repaired_code,
@@ -170,4 +204,115 @@ class Orchestrator:
             validation=final_validation,
             used_repair=used_repair,
             plan=plan,
+        )
+
+    def generate_agent(
+        self,
+        prompt: str,
+        model: str | None = None,
+        mode: str | None = None,
+        assumption: str | None = None,
+    ) -> AgentIterationResult:
+        plan = plan_task(prompt)
+        request_mode = self.classify_request_mode(prompt, override=mode)
+
+        if plan.needs_clarification and request_mode == "clarify_then_generate" and not assumption:
+            model_name = model or self.settings.default_model
+            self.client.ensure_model_allowed(model_name)
+            return AgentIterationResult(
+                status="clarification_required",
+                code=None,
+                model=model_name,
+                request_mode=request_mode,
+                benchmark_mode=self.resolve_benchmark_mode(None),
+                used_repair=False,
+                validation=None,
+                question=self.clarification_question(plan),
+                acceptable_assumptions=self.clarification_assumptions(plan),
+                assumptions=plan.assumptions,
+                output_contract=plan.output_contract,
+            )
+
+        prompt_for_generation = prompt
+        if assumption in {"raw_lua", "json_with_lua_wrappers"}:
+            if assumption == "raw_lua":
+                prompt_for_generation = f"{prompt}\n\nAssumption: output must be raw Lua without JSON wrappers."
+            else:
+                prompt_for_generation = f"{prompt}\n\nAssumption: output must be JSON with lua{{...}}lua wrappers."
+
+        generation_result = self.generate(prompt_for_generation, model=model, mode=mode)
+        status = "repaired" if generation_result.used_repair else "generated"
+        return AgentIterationResult(
+            status=status,
+            code=generation_result.code,
+            model=generation_result.model,
+            request_mode=generation_result.request_mode,
+            benchmark_mode=generation_result.benchmark_mode,
+            used_repair=generation_result.used_repair,
+            validation=generation_result.validation,
+            assumptions=generation_result.plan.assumptions,
+            output_contract=generation_result.plan.output_contract,
+        )
+
+    def repair_with_feedback(
+        self,
+        prompt: str,
+        previous_code: str,
+        feedback: str,
+        model: str | None = None,
+        assumption: str | None = None,
+    ) -> AgentIterationResult:
+        model_name = model or self.settings.default_model
+        model_name = model_name.strip()
+        self.client.ensure_model_allowed(model_name)
+
+        plan = plan_task(prompt)
+        output_contract = assumption if assumption in {"raw_lua", "json_with_lua_wrappers"} else plan.output_contract
+        context = self.retriever.retrieve_context(prompt, include_rules=True, include_examples=True, top_k=2)
+        repair_messages = build_feedback_repair_messages(
+            prompt=prompt,
+            previous_code=previous_code,
+            feedback=feedback,
+            context=context,
+            plan=plan,
+            output_contract=output_contract,
+        )
+        response = self.client.chat(model_name, repair_messages)
+        repaired_code = normalize_output_contract(
+            response.content,
+            output_contract,
+            preferred_keys=plan.output_keys,
+            force_json_wrap=(output_contract == "json_with_lua_wrappers"),
+        )
+        validation = run_all_validators(
+            repaired_code,
+            prompt,
+            self.settings.luac_binary,
+            expected_contract=output_contract,
+            syntax_require_luac=self.settings.syntax_require_luac,
+            task_type=plan.task_type,
+        )
+        final_code, final_validation, used_repair = select_best_candidate(
+            previous_code,
+            run_all_validators(
+                previous_code,
+                prompt,
+                self.settings.luac_binary,
+                expected_contract=output_contract,
+                syntax_require_luac=self.settings.syntax_require_luac,
+                task_type=plan.task_type,
+            ),
+            repaired_code,
+            validation,
+        )
+        return AgentIterationResult(
+            status="repaired" if used_repair else "generated",
+            code=final_code,
+            model=model_name,
+            request_mode="clarify_then_generate",
+            benchmark_mode=self.resolve_benchmark_mode(None),
+            used_repair=used_repair,
+            validation=final_validation,
+            assumptions=plan.assumptions,
+            output_contract=output_contract,
         )

@@ -2,6 +2,7 @@ from app.validators.contract_validator import validate_contract
 from app.validators.domain_validator import validate_domain
 from app.validators.output_validator import validate_output
 from app.validators.syntax_validator import validate_syntax
+from app.validators.task_validator import validate_task_specific
 
 
 def test_output_validator_rejects_markdown_fence() -> None:
@@ -51,3 +52,26 @@ def test_syntax_validator_allows_missing_luac_in_soft_mode() -> None:
         require_luac=False,
     )
     assert report.ok
+
+
+def test_task_validator_flags_wrong_keep_only_fields_logic() -> None:
+    code = """
+result = wf.vars.RESTbody.result
+for _, entry in pairs(result) do
+  for key, value in pairs(entry) do
+    if key == "ID" or key == "ENTITY_ID" or key == "CALL" then
+      entry[key] = nil
+    end
+  end
+end
+return result
+""".strip()
+    report = validate_task_specific(code, "keep_only_fields")
+    assert not report.ok
+    assert any(issue.code == "task_keep_only_fields_wrong_logic" for issue in report.issues)
+
+
+def test_task_validator_flags_direct_os_time_iso_conversion() -> None:
+    report = validate_task_specific("return os.time(wf.initVariables.recallTime)", "iso_to_unix")
+    assert not report.ok
+    assert any(issue.code == "task_iso_to_unix_direct_os_time" for issue in report.issues)

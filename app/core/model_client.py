@@ -58,9 +58,10 @@ class OllamaClient:
         raise OllamaError(f"Ollama request failed on all endpoints: {joined}")
 
     def ensure_model_allowed(self, model: str) -> None:
-        if model not in self.settings.allowed_models_list:
+        normalized = model.strip()
+        if normalized not in self.settings.allowed_models_list:
             raise OllamaError(
-                f"Model '{model}' is not in allow-list: {self.settings.allowed_models_list}"
+                f"Model '{normalized}' is not in allow-list: {self.settings.allowed_models_list}"
             )
 
     def list_models(self) -> list[str]:
@@ -102,16 +103,18 @@ class OllamaClient:
             return False, []
 
     def chat(self, model: str, messages: list[dict], options: dict | None = None) -> ChatResult:
-        self.ensure_model_allowed(model)
+        model_name = model.strip()
+        self.ensure_model_allowed(model_name)
 
         payload = {
-            "model": model,
+            "model": model_name,
             "messages": messages,
             "stream": False,
             "options": options
             or {
                 "num_ctx": 4096,
                 "num_predict": 256,
+                "num_batch": self.settings.ollama_num_batch,
                 "temperature": 0.1,
                 "top_p": 0.9,
                 "top_k": 40,

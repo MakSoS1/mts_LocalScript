@@ -132,3 +132,46 @@ Return only corrected code.
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
     ]
+
+
+def build_feedback_repair_messages(
+    prompt: str,
+    previous_code: str,
+    feedback: str,
+    context: RetrievalContext,
+    plan: TaskPlan,
+    output_contract: str,
+) -> list[dict]:
+    user_prompt = f"""
+Apply minimal changes to the previous code according to user feedback.
+Task:
+{prompt}
+
+User feedback:
+{feedback}
+
+Previous code:
+{previous_code}
+
+Expected output contract:
+{output_contract}
+
+Planner output (JSON):
+{plan.to_prompt_json()}
+
+Rules:
+{context.rules or 'N/A'}
+
+Anti-patterns:
+{context.anti_patterns or 'N/A'}
+
+Requirements:
+1. Keep unchanged logic intact.
+2. Modify only what is required by feedback.
+3. Return only final code.
+""".strip()
+
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]

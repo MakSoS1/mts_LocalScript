@@ -61,7 +61,22 @@ def normalize_output_contract(
 
     if output_contract == "json_with_lua_wrappers":
         if cleaned.startswith("{"):
-            return cleaned
+            payload = maybe_parse_json(cleaned)
+            if payload is None:
+                return cleaned
+
+            preferred = preferred_keys[0] if preferred_keys else None
+            if preferred and preferred not in payload and payload:
+                if len(payload) == 1:
+                    only_key = next(iter(payload))
+                    payload = {preferred: payload[only_key]}
+                else:
+                    for key, value in payload.items():
+                        if isinstance(value, str):
+                            payload = {preferred: value}
+                            break
+
+            return json.dumps(payload, ensure_ascii=False)
         if force_json_wrap:
             keys = preferred_keys or []
             key = keys[0] if keys else "code"

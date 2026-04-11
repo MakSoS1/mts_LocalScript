@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://host.docker.internal:11434"
     ollama_base_urls: str = "http://host.docker.internal:11434,http://localhost:11434"
     ollama_timeout_seconds: int = 180
+    ollama_num_batch: int = 1
 
     required_demo_model: str = DEFAULT_REQUIRED_DEMO_MODEL
     default_model: str = DEFAULT_REQUIRED_DEMO_MODEL
@@ -52,13 +53,14 @@ class Settings(BaseSettings):
         models = [self.required_demo_model, *self.optional_benchmark_models_list, *self.strict_models_list]
         deduped: list[str] = []
         for model in models:
-            if model and model not in deduped:
-                deduped.append(model)
+            normalized = model.strip()
+            if normalized and normalized not in deduped:
+                deduped.append(normalized)
         return deduped
 
     @property
     def required_models_list(self) -> list[str]:
-        return [self.required_demo_model]
+        return [self.required_demo_model.strip()]
 
     @property
     def ollama_base_urls_list(self) -> list[str]:

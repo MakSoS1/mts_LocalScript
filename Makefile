@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: dev test benchmark docker demo lint bootstrap clean control-run
+.PHONY: dev test benchmark docker demo lint bootstrap clean control-run control-run-container judge-preflight judge-post eval-pack
 
 dev:
 	uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
@@ -28,3 +28,15 @@ clean:
 
 control-run:
 	./scripts/control_run.sh
+
+control-run-container:
+	./scripts/control_run_container.sh
+
+judge-preflight:
+	python scripts/judge_check.py --phase preflight --model localscript-qwen25coder7b --strict-luac
+
+judge-post:
+	python scripts/judge_check.py --phase post --model localscript-qwen25coder7b --max-vram-mib 8192
+
+eval-pack:
+	python tools/eval_pack/run_eval_pack.py
