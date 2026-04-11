@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+from app.validators.types import ValidationIssue, ValidationReport
+
+
+def _has_all(code: str, items: list[str]) -> bool:
+    lowered = code.lower()
+    return all(item.lower() in lowered for item in items)
+
+
+def validate_task_specific(code: str, task_type: str | None) -> ValidationReport:
+    if not task_type or task_type == "generic":
+        return ValidationReport(ok=True, issues=[])
+
+    issues: list[ValidationIssue] = []
+    lowered = code.lower()
+
+    if task_type == "last_element" and not _has_all(lowered, ["wf.vars.emails", "#wf.vars.emails"]):
+        issues.append(
+            ValidationIssue(
+                code="task_last_element_missing_pattern",
+                message="Expected last element pattern for emails task",
+                hint="Use wf.vars.emails[#wf.vars.emails] for last email.",
+                validator="task",
+            )
+        )
+
+    if task_type == "increment" and not _has_all(lowered, ["wf.vars.try_count_n", "+ 1"]):
+        issues.append(
+            ValidationIssue(
+                code="task_increment_missing_pattern",
+                message="Expected increment pattern for try_count_n task",
+                hint="Return wf.vars.try_count_n + 1.",
+                validator="task",
+            )
+        )
+
+    if task_type == "keep_only_fields" and not _has_all(
+        lowered, ["wf.vars.restbody.result", "id", "entity_id", "call"]
+    ):
+        issues.append(
+            ValidationIssue(
+                code="task_keep_only_fields_missing_pattern",
+                message="Expected key-cleanup pattern for RESTbody.result",
+                hint="Iterate wf.vars.RESTbody.result and keep only ID/ENTITY_ID/CALL.",
+                validator="task",
+            )
+        )
+
+    if task_type == "datum_time_to_iso" and not _has_all(
+        lowered, ["wf.vars.json.idoc.zcdf_head.datum", "wf.vars.json.idoc.zcdf_head.time", "string.format"]
+    ):
+        issues.append(
+            ValidationIssue(
+                code="task_datum_time_iso_missing_pattern",
+                message="Expected DATUM/TIME to ISO conversion pattern",
+                hint="Read DATUM/TIME from wf.vars.json.IDOC.ZCDF_HEAD and format ISO string.",
+                validator="task",
+            )
+        )
+
+    if task_type == "iso_to_unix" and not _has_all(lowered, ["wf.initvariables.recalltime", "return"]):
+        issues.append(
+            ValidationIssue(
+                code="task_iso_to_unix_missing_pattern",
+                message="Expected recallTime unix conversion pattern",
+                hint="Read wf.initVariables.recallTime and return unix timestamp.",
+                validator="task",
+            )
+        )
+
+    if task_type == "ensure_array" and not _has_all(
+        lowered, ["wf.vars.json.idoc.zcdf_head.zcdf_packages", "ensurearray"]
+    ):
+        issues.append(
+            ValidationIssue(
+                code="task_ensure_array_missing_pattern",
+                message="Expected ensure array normalization pattern",
+                hint="Normalize items as arrays for wf.vars.json.IDOC.ZCDF_HEAD.ZCDF_PACKAGES.",
+                validator="task",
+            )
+        )
+
+    if task_type == "filter_non_empty" and not _has_all(
+        lowered, ["parsedcsv", "discount", "markdown", "_utils.array.new"]
+    ):
+        issues.append(
+            ValidationIssue(
+                code="task_filter_non_empty_missing_pattern",
+                message="Expected Discount/Markdown filter pattern",
+                hint="Use _utils.array.new and keep items with non-empty Discount or Markdown.",
+                validator="task",
+            )
+        )
+
+    if task_type == "multi_field_json" and not _has_all(lowered, ["squared", "tonumber"]):
+        issues.append(
+            ValidationIssue(
+                code="task_multi_field_json_missing_pattern",
+                message="Expected multi-field JSON pattern with squared value",
+                hint="Return num and squared fields using tonumber and multiplication.",
+                validator="task",
+            )
+        )
+
+    return ValidationReport(ok=not issues, issues=issues)

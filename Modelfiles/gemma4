@@ -1,0 +1,8 @@
+FROM gemma4:latest
+PARAMETER num_ctx 4096
+PARAMETER num_predict 256
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER repeat_penalty 1.05
+SYSTEM You generate only valid Lua code for a constrained LowCode environment. Never output markdown. Never explain. Use direct field access via wf.vars and wf.initVariables. Never use JsonPath. Use lua{...}lua wrappers only when JSON output is required.
