@@ -59,3 +59,38 @@ def test_planner_extracts_output_key_from_ru_prompt() -> None:
 def test_planner_extracts_output_key_from_en_prompt() -> None:
     plan = plan_task("Build payload and return the result as notificationPayload.")
     assert "notificationPayload" in plan.output_keys
+
+
+def test_planner_extracts_output_key_from_value_phrase() -> None:
+    plan = plan_task("Посчитай общий вес и верни значение в totalWeight.")
+    assert "totalWeight" in plan.output_keys
+
+
+def test_planner_extracts_output_key_from_define_style_prompt() -> None:
+    plan = plan_task("Определи approvalRoute. Если ... верни standard.")
+    assert "approvalRoute" in plan.output_keys
+
+
+def test_normalize_flattens_nested_lua_wrapper() -> None:
+    raw = '{"code":"lua{lua{return 1}lua}lua"}'
+    normalized = normalize_output_contract(
+        raw,
+        "json_with_lua_wrappers",
+        preferred_keys=["result"],
+        force_json_wrap=True,
+    )
+    payload = json.loads(normalized)
+    assert payload == {"result": "lua{return 1}lua"}
+
+
+def test_normalize_rewrites_unsupported_array_push() -> None:
+    raw = '{"result":"lua{local out = _utils.array.new()\\n_utils.array.push(out, item)\\nreturn out}lua"}'
+    normalized = normalize_output_contract(
+        raw,
+        "json_with_lua_wrappers",
+        preferred_keys=["result"],
+        force_json_wrap=True,
+    )
+    payload = json.loads(normalized)
+    assert "_utils.array.push(" not in payload["result"]
+    assert "table.insert(" in payload["result"]

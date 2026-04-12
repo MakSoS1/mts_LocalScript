@@ -4,7 +4,7 @@ import re
 from .types import ValidationIssue, ValidationReport
 
 
-LUA_WRAPPER_RE = re.compile(r"^lua\{[\s\S]*\}lua$")
+LUA_WRAPPER_RE = re.compile(r"^lua\{([\s\S]*)\}lua$")
 
 
 def _collect_string_values(payload: object) -> list[str]:
@@ -71,12 +71,24 @@ def validate_contract(text: str, expected_contract: str | None = None) -> Valida
                 )
             )
         for value in wrapped:
-            if not LUA_WRAPPER_RE.match(value):
+            match = LUA_WRAPPER_RE.match(value)
+            if not match:
                 issues.append(
                     ValidationIssue(
                         code="bad_lua_wrapper",
                         message="Found malformed lua wrapper",
                         hint="Use exact wrapper format: lua{...}lua",
+                        validator="contract",
+                    )
+                )
+                continue
+            inner = match.group(1)
+            if "lua{" in inner or "}lua" in inner:
+                issues.append(
+                    ValidationIssue(
+                        code="nested_lua_wrapper",
+                        message="Found nested or duplicated lua wrapper markers",
+                        hint="Use a single wrapper only: lua{...}lua.",
                         validator="contract",
                     )
                 )

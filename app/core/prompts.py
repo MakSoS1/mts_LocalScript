@@ -13,6 +13,8 @@ Rules:
 4. If JSON output with Lua snippets is required, use exact wrapper format: lua{...}lua.
 5. Do not invent helper APIs except _utils.array.new and _utils.array.markAsArray.
 6. Produce the minimal correct solution.
+7. Lua snippets must contain explicit `return` of the final result.
+8. Never use nested wrappers like lua{lua{...}lua}lua.
 """.strip()
 
 
@@ -55,6 +57,7 @@ def build_generation_messages(
     plan: TaskPlan,
     request_mode: str,
     output_contract: str,
+    candidate_strategy: str | None = None,
 ) -> list[dict]:
     mode_instruction = {
         "direct_generation": "Generate directly.",
@@ -68,7 +71,9 @@ Task:
 
 Mode: {request_mode}
 Output contract: {output_contract}
+Expected output key(s): {plan.output_keys}
 Instruction: {mode_instruction}
+Candidate strategy: {candidate_strategy or 'Default balanced solution.'}
 External API contract reminder: input prompt -> output code.
 
 Planner output (JSON):
@@ -115,6 +120,8 @@ Validator errors:
 
 Expected output contract:
 {output_contract}
+Expected output key(s):
+{plan.output_keys}
 
 Planner output (JSON):
 {plan.to_prompt_json()}
@@ -155,6 +162,8 @@ Previous code:
 
 Expected output contract:
 {output_contract}
+Expected output key(s):
+{plan.output_keys}
 
 Planner output (JSON):
 {plan.to_prompt_json()}

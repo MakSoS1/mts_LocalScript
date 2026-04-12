@@ -21,6 +21,7 @@ from app.core.orchestrator import Orchestrator
 from app.core.retrieval import LocalRetriever
 from app.validators.contract_validator import validate_contract
 from app.validators.domain_validator import validate_domain
+from app.validators.lua_quality_validator import analyze_lua_tools
 from app.validators.output_validator import validate_output
 from tools.eval_pack.user_cases import FIRST_PACK_CASES, SECOND_PACK_CASES
 
@@ -119,14 +120,16 @@ def _lua_to_py(value: Any) -> Any:
     return value
 
 
-def _evaluate_runtime(code: str, expected_mode: str, expected_key: str | None, context: dict[str, Any]) -> tuple[bool, Any]:
+def _evaluate_runtime(
+    code: str, expected_mode: str, expected_key: str | None, context: dict[str, Any]
+) -> tuple[bool, Any, str | None]:
     lua_chunk, _ = _extract_lua_chunk(code, expected_mode, expected_key)
     if not lua_chunk:
-        return False, None
+        return False, None, "lua_chunk_not_found"
 
     lua = _lua_runtime()
     if lua is None:
-        return False, None
+        return False, None, "lupa_unavailable"
 
     wf_value = context.get("wf", {})
     lua.globals()["wf"] = _py_to_lua(lua, wf_value)
@@ -179,8 +182,8 @@ end
     )
     ok, result = executor(lua_chunk)
     if not ok:
-        return False, None
-    return True, _lua_to_py(result)
+        return False, None, str(result)
+    return True, _lua_to_py(result), None
 
 
 def _normalize_runtime(value: Any) -> Any:
@@ -239,12 +242,177 @@ def _run_generation(
     return result, clarification_rounds
 
 
-def _case_records(case: dict[str, Any]) -> list[tuple[str, str]]:
+def _case_records(case: dict[str, Any], variants: set[str] | None = None) -> list[tuple[str, str]]:
     prompts = case.get("prompts", {})
-    return [(name, text) for name, text in prompts.items()]
+    records = [(name, text) for name, text in prompts.items()]
+    if not variants:
+        return records
+    return [(name, text) for name, text in records if name in variants]
 
 
-def run_cases(model: str, output_dir: Path) -> dict[str, Any]:
+def _issue_codes(report: Any) -> list[str]:
+    return [str(issue.code) for issue in report.issues]
+
+
+def _evaluate_output(
+    *,
+    code: str,
+    prompt: str,
+    expected_mode: str,
+    expected_key: str | None,
+    expected_lua: str,
+    expected_runtime: Any,
+    context: dict[str, Any],
+    luac_binary: str,
+    luacheck_binary: str,
+    stylua_binary: str,
+) -> dict[str, Any]:
+    output_report = validate_output(code)
+    contract_report = validate_contract(code, expected_contract=expected_mode)
+    domain_report = validate_domain(code, prompt)
+    mode_ok = _mode_pass(expected_mode, code)
+    key_ok = _key_pass(expected_mode, expected_key, code)
+    lua_chunk, extracted_key = _extract_lua_chunk(code, expected_mode, expected_key)
+    reference_match = bool(lua_chunk) and (_norm_code(lua_chunk) == _norm_code(expected_lua))
+    quality_report = analyze_lua_tools(
+        code,
+        luac_binary=luac_binary,
+        luacheck_binary=luacheck_binary,
+        stylua_binary=stylua_binary,
+    )
+    syntax_pass = quality_report["summary"]["syntax_pass"]
+    lint_pass = quality_report["summary"]["lint_pass"]
+    format_pass = quality_report["summary"]["format_pass"]
+    quality_gate_pass = quality_report["summary"]["quality_gate_pass"]
+
+    runtime_pass = False
+    runtime_value = None
+    if expected_runtime is not None:
+        runtime_exec_ok, runtime_value, runtime_error = _evaluate_runtime(
+            code=code,
+            expected_mode=expected_mode,
+            expected_key=expected_key,
+            context=context,
+        )
+        if runtime_exec_ok:
+            runtime_pass = _normalize_runtime(runtime_value) == _normalize_runtime(expected_runtime)
+    else:
+        runtime_error = None
+
+    passed = (
+        mode_ok
+        and key_ok
+        and contract_report.ok
+        and syntax_pass is not False
+        and (runtime_pass or expected_runtime is None)
+    )
+
+    return {
+        "passed": passed,
+        "mode_pass": mode_ok,
+        "key_pass": key_ok,
+        "output_pass": output_report.ok,
+        "contract_pass": contract_report.ok,
+        "domain_pass": domain_report.ok,
+        "syntax_pass": syntax_pass,
+        "lint_pass": lint_pass,
+        "format_pass": format_pass,
+        "quality_gate_pass": quality_gate_pass,
+        "tooling": quality_report["summary"]["tooling"],
+        "tool_results": quality_report["chunks"],
+        "reference_match": reference_match,
+        "runtime_pass": runtime_pass,
+        "runtime_value": runtime_value,
+        "runtime_error": runtime_error,
+        "expected_runtime": expected_runtime,
+        "extracted_key": extracted_key,
+        "issue_codes": {
+            "output": _issue_codes(output_report),
+            "contract": _issue_codes(contract_report),
+            "domain": _issue_codes(domain_report),
+        },
+        "code": code,
+    }
+
+
+def _payload_rank(payload: dict[str, Any]) -> tuple[int, ...]:
+    tool_failures = sum(
+        1
+        for key in ("syntax_pass", "lint_pass", "format_pass")
+        if payload.get(key) is False
+    )
+    return (
+        1 if payload.get("passed") else 0,
+        1 if payload.get("runtime_pass") else 0,
+        1 if payload.get("contract_pass") else 0,
+        1 if payload.get("key_pass") else 0,
+        1 if payload.get("mode_pass") else 0,
+        1 if payload.get("syntax_pass") is True else 0,
+        1 if payload.get("lint_pass") is True else 0,
+        1 if payload.get("format_pass") is True else 0,
+        -tool_failures,
+        -sum(len(items) for items in payload.get("issue_codes", {}).values()),
+        -len(str(payload.get("code", ""))),
+    )
+
+
+def _build_repair_feedback(
+    payload: dict[str, Any],
+    *,
+    expected_mode: str,
+    expected_key: str | None,
+) -> str:
+    lines = [
+        "Исправь предыдущий код по конкретным результатам проверки.",
+        f"Сохрани output contract: {expected_mode}.",
+    ]
+    if expected_key:
+        lines.append(f"Используй output key: {expected_key}.")
+    if payload.get("runtime_error"):
+        lines.append(f"Runtime error: {payload['runtime_error']}")
+    elif payload.get("runtime_pass") is False and payload.get("expected_runtime") is not None:
+        lines.append("Код выполнился, но вернул неверный результат на тестовой фикстуре.")
+        lines.append(f"Expected runtime value: {json.dumps(payload['expected_runtime'], ensure_ascii=False)}")
+        lines.append(f"Actual runtime value: {json.dumps(payload.get('runtime_value'), ensure_ascii=False)}")
+
+    for area, issues in payload.get("issue_codes", {}).items():
+        if not issues:
+            continue
+        lines.append(f"{area} issues: {', '.join(issues)}")
+
+    for chunk in payload.get("tool_results", []):
+        for tool_name in ("syntax", "lint", "format"):
+            tool = chunk[tool_name]
+            if tool["status"] != "failed":
+                continue
+            details = tool.get("details") or f"{tool_name} failed"
+            lines.append(f"{tool_name} for chunk {chunk['label']}: {details}")
+
+    lines.append("Верни только исправленный код без пояснений.")
+    return "\n".join(lines)
+
+
+def _phase_outputs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    outputs = [row["initial"] for row in rows]
+    outputs.extend(row["followup"] for row in rows if row["followup"])
+    return outputs
+
+
+def _metric_rate(outputs: list[dict[str, Any]], field: str) -> tuple[float | None, int]:
+    values = [item[field] for item in outputs if item.get(field) is not None]
+    if not values:
+        return None, 0
+    passed = sum(1 for value in values if value is True)
+    return round(passed / len(values), 4), len(values)
+
+
+def run_cases(
+    model: str,
+    output_dir: Path,
+    case_ids: set[str] | None = None,
+    variants: set[str] | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
     settings = Settings(
         ollama_base_url="http://localhost:11434",
         ollama_base_urls="http://localhost:11434",
@@ -265,9 +433,15 @@ def run_cases(model: str, output_dir: Path) -> dict[str, Any]:
     suite_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "passed": 0, "failed": 0})
 
     for case in all_cases:
+        if limit and len(rows) >= limit:
+            break
         case_id = str(case["id"])
+        if case_ids and case_id not in case_ids:
+            continue
         case_group = "pack1" if case_id.startswith("pack1") else "pack2"
-        for variant_name, prompt in _case_records(case):
+        for variant_name, prompt in _case_records(case, variants=variants):
+            if limit and len(rows) >= limit:
+                break
             print(f"[RUN] {case_id}::{variant_name}", flush=True)
             started = time.perf_counter()
             try:
@@ -303,29 +477,55 @@ def run_cases(model: str, output_dir: Path) -> dict[str, Any]:
             initial_code = initial_result.code or ""
             expected_mode_initial = str(case["expected_mode_initial"])
             expected_key_initial = case.get("expected_output_key_initial")
-            expected_lua_initial = str(case["expected_lua_initial"]).strip()
-            expected_runtime_initial = case.get("expected_runtime_initial")
+            initial_payload = _evaluate_output(
+                code=initial_code,
+                prompt=prompt,
+                expected_mode=expected_mode_initial,
+                expected_key=expected_key_initial,
+                expected_lua=str(case["expected_lua_initial"]).strip(),
+                expected_runtime=case.get("expected_runtime_initial"),
+                context=case.get("context", {}),
+                luac_binary=settings.luac_binary,
+                luacheck_binary=settings.luacheck_binary,
+                stylua_binary=settings.stylua_binary,
+            )
+            current_status = initial_result.status
 
-            output_report = validate_output(initial_code)
-            contract_report = validate_contract(initial_code, expected_contract=expected_mode_initial)
-            domain_report = validate_domain(initial_code, prompt)
-            mode_ok = _mode_pass(expected_mode_initial, initial_code)
-            key_ok = _key_pass(expected_mode_initial, expected_key_initial, initial_code)
-            lua_chunk_initial, extracted_key = _extract_lua_chunk(initial_code, expected_mode_initial, expected_key_initial)
-            lua_match_initial = bool(lua_chunk_initial) and (_norm_code(lua_chunk_initial) == _norm_code(expected_lua_initial))
-
-            runtime_ok_initial = False
-            runtime_value_initial = None
-            if expected_runtime_initial is not None:
-                runtime_exec_ok, runtime_value = _evaluate_runtime(
-                    code=initial_code,
+            if not initial_payload["passed"]:
+                repair_feedback = _build_repair_feedback(
+                    initial_payload,
                     expected_mode=expected_mode_initial,
                     expected_key=expected_key_initial,
-                    context=case.get("context", {}),
                 )
-                runtime_value_initial = runtime_value
-                if runtime_exec_ok:
-                    runtime_ok_initial = _normalize_runtime(runtime_value) == _normalize_runtime(expected_runtime_initial)
+                repair_started = time.perf_counter()
+                repair_result = orchestrator.repair_with_feedback(
+                    prompt=prompt,
+                    previous_code=initial_code,
+                    feedback=repair_feedback,
+                    model=model,
+                    assumption=expected_mode_initial,
+                )
+                repair_latency = round((time.perf_counter() - repair_started) * 1000.0, 2)
+                repaired_code = repair_result.code or initial_code
+                repaired_payload = _evaluate_output(
+                    code=repaired_code,
+                    prompt=prompt,
+                    expected_mode=expected_mode_initial,
+                    expected_key=expected_key_initial,
+                    expected_lua=str(case["expected_lua_initial"]).strip(),
+                    expected_runtime=case.get("expected_runtime_initial"),
+                    context=case.get("context", {}),
+                    luac_binary=settings.luac_binary,
+                    luacheck_binary=settings.luacheck_binary,
+                    stylua_binary=settings.stylua_binary,
+                )
+                repaired_payload["repair_feedback"] = repair_feedback
+                repaired_payload["repair_latency_ms"] = repair_latency
+                repaired_payload["previous_attempt"] = initial_payload
+                if _payload_rank(repaired_payload) > _payload_rank(initial_payload):
+                    initial_payload = repaired_payload
+                    initial_code = repaired_code
+                    current_status = repair_result.status
 
             followup_payload: dict[str, Any] | None = None
             followup_ok = True
@@ -340,61 +540,23 @@ def run_cases(model: str, output_dir: Path) -> dict[str, Any]:
                 )
                 followup_latency = round((time.perf_counter() - followup_started) * 1000.0, 2)
                 followup_code = followup_result.code or ""
-                expected_mode_followup = str(case["expected_mode_followup"])
-                expected_key_followup = case.get("expected_output_key_followup")
-                expected_lua_followup = str(case["expected_lua_followup"]).strip()
-                expected_runtime_followup = case.get("expected_runtime_followup")
-
-                followup_mode_ok = _mode_pass(expected_mode_followup, followup_code)
-                followup_key_ok = _key_pass(expected_mode_followup, expected_key_followup, followup_code)
-                followup_chunk, followup_extracted_key = _extract_lua_chunk(
-                    followup_code,
-                    expected_mode_followup,
-                    expected_key_followup,
+                followup_payload = _evaluate_output(
+                    code=followup_code,
+                    prompt=prompt,
+                    expected_mode=str(case["expected_mode_followup"]),
+                    expected_key=case.get("expected_output_key_followup"),
+                    expected_lua=str(case["expected_lua_followup"]).strip(),
+                    expected_runtime=case.get("expected_runtime_followup"),
+                    context=case.get("context", {}),
+                    luac_binary=settings.luac_binary,
+                    luacheck_binary=settings.luacheck_binary,
+                    stylua_binary=settings.stylua_binary,
                 )
-                followup_lua_match = bool(followup_chunk) and (
-                    _norm_code(followup_chunk) == _norm_code(expected_lua_followup)
-                )
+                followup_payload["status"] = followup_result.status
+                followup_payload["latency_ms"] = followup_latency
+                followup_ok = followup_payload["passed"]
 
-                followup_runtime_ok = False
-                followup_runtime_value = None
-                if expected_runtime_followup is not None:
-                    runtime_exec_ok, runtime_value = _evaluate_runtime(
-                        code=followup_code,
-                        expected_mode=expected_mode_followup,
-                        expected_key=expected_key_followup,
-                        context=case.get("context", {}),
-                    )
-                    followup_runtime_value = runtime_value
-                    if runtime_exec_ok:
-                        followup_runtime_ok = _normalize_runtime(runtime_value) == _normalize_runtime(expected_runtime_followup)
-
-                followup_ok = (
-                    followup_mode_ok
-                    and followup_key_ok
-                    and (followup_runtime_ok or expected_runtime_followup is None)
-                )
-                followup_payload = {
-                    "status": followup_result.status,
-                    "latency_ms": followup_latency,
-                    "mode_pass": followup_mode_ok,
-                    "key_pass": followup_key_ok,
-                    "lua_match": followup_lua_match,
-                    "runtime_pass": followup_runtime_ok,
-                    "runtime_value": followup_runtime_value,
-                    "expected_runtime": expected_runtime_followup,
-                    "extracted_key": followup_extracted_key,
-                }
-
-            initial_ok = (
-                mode_ok
-                and key_ok
-                and output_report.ok
-                and contract_report.ok
-                and domain_report.ok
-                and (runtime_ok_initial or expected_runtime_initial is None)
-            )
-            passed = initial_ok and followup_ok
+            passed = initial_payload["passed"] and followup_ok
 
             suite_stats[case_group]["total"] += 1
             suite_stats[case_group]["passed"] += int(passed)
@@ -407,20 +569,9 @@ def run_cases(model: str, output_dir: Path) -> dict[str, Any]:
                     "variant": variant_name,
                     "latency_ms": latency_ms,
                     "clarification_rounds": clarification_rounds,
-                    "status": initial_result.status,
+                    "status": current_status,
                     "passed": passed,
-                    "initial": {
-                        "mode_pass": mode_ok,
-                        "key_pass": key_ok,
-                        "output_pass": output_report.ok,
-                        "contract_pass": contract_report.ok,
-                        "domain_pass": domain_report.ok,
-                        "lua_match": lua_match_initial,
-                        "runtime_pass": runtime_ok_initial,
-                        "runtime_value": runtime_value_initial,
-                        "expected_runtime": expected_runtime_initial,
-                        "extracted_key": extracted_key,
-                    },
+                    "initial": initial_payload,
                     "followup": followup_payload,
                 }
             )
@@ -428,11 +579,28 @@ def run_cases(model: str, output_dir: Path) -> dict[str, Any]:
     total = len(rows)
     passed = sum(1 for row in rows if row["passed"])
     failed = total - passed
+    outputs = _phase_outputs(rows)
+    semantic_pass_rate, semantic_checked = _metric_rate(outputs, "runtime_pass")
+    syntax_pass_rate, syntax_checked = _metric_rate(outputs, "syntax_pass")
+    lint_pass_rate, lint_checked = _metric_rate(outputs, "lint_pass")
+    format_pass_rate, format_checked = _metric_rate(outputs, "format_pass")
+    quality_gate_rate, quality_gate_checked = _metric_rate(outputs, "quality_gate_pass")
     summary = {
         "total_runs": total,
         "passed_runs": passed,
         "failed_runs": failed,
         "pass_rate": round(passed / max(total, 1), 4),
+        "analyzed_outputs": len(outputs),
+        "semantic_pass_rate": semantic_pass_rate,
+        "semantic_checked_outputs": semantic_checked,
+        "syntax_pass_rate": syntax_pass_rate,
+        "syntax_checked_outputs": syntax_checked,
+        "lint_pass_rate": lint_pass_rate,
+        "lint_checked_outputs": lint_checked,
+        "format_pass_rate": format_pass_rate,
+        "format_checked_outputs": format_checked,
+        "quality_gate_pass_rate": quality_gate_rate,
+        "quality_gate_checked_outputs": quality_gate_checked,
     }
     payload = {
         "run_id": run_id,
@@ -455,6 +623,12 @@ def run_cases(model: str, output_dir: Path) -> dict[str, Any]:
         f"- Passed: `{summary['passed_runs']}`",
         f"- Failed: `{summary['failed_runs']}`",
         f"- Pass rate: `{summary['pass_rate']}`",
+        f"- Analyzed outputs: `{summary['analyzed_outputs']}`",
+        f"- Semantic pass rate: `{summary['semantic_pass_rate']}`",
+        f"- Syntax pass rate: `{summary['syntax_pass_rate']}`",
+        f"- Lint pass rate: `{summary['lint_pass_rate']}`",
+        f"- Format pass rate: `{summary['format_pass_rate']}`",
+        f"- Quality gate pass rate: `{summary['quality_gate_pass_rate']}`",
         "",
         "## Groups",
         "",
@@ -486,9 +660,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run user business cases through agent pipeline")
     parser.add_argument("--model", default="localscript-qwen25coder7b:latest")
     parser.add_argument("--output-dir", default="tools/eval_pack/reports")
+    parser.add_argument("--case-id", action="append", default=[], help="Run only specific case id (repeatable)")
+    parser.add_argument("--variant", action="append", default=[], help="Run only specific variant, e.g. ru/en/noisy")
+    parser.add_argument("--limit", type=int, default=0, help="Stop after N case-variant runs.")
     args = parser.parse_args()
 
-    payload = run_cases(model=args.model, output_dir=Path(args.output_dir))
+    selected_case_ids = {item.strip() for item in args.case_id if item.strip()} or None
+    selected_variants = {item.strip() for item in args.variant if item.strip()} or None
+    payload = run_cases(
+        model=args.model,
+        output_dir=Path(args.output_dir),
+        case_ids=selected_case_ids,
+        variants=selected_variants,
+        limit=args.limit or None,
+    )
     print(json.dumps(payload["summary"], ensure_ascii=False, indent=2))
     print(payload["report_json"])
     print(payload["report_markdown"])

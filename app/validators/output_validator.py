@@ -1,3 +1,4 @@
+import json
 import re
 
 from .types import ValidationIssue, ValidationReport
@@ -10,6 +11,25 @@ PROSE_PREFIXES = (
     "sure",
     "lua code",
 )
+
+LUA_WRAPPER_RE = re.compile(r"^lua\{([\s\S]*)\}lua$")
+
+
+def _collect_wrapped_chunks(payload: object) -> list[str]:
+    chunks: list[str] = []
+    if isinstance(payload, dict):
+        for value in payload.values():
+            chunks.extend(_collect_wrapped_chunks(value))
+        return chunks
+    if isinstance(payload, list):
+        for value in payload:
+            chunks.extend(_collect_wrapped_chunks(value))
+        return chunks
+    if isinstance(payload, str):
+        match = LUA_WRAPPER_RE.match(payload.strip())
+        if match:
+            chunks.append(match.group(1))
+    return chunks
 
 
 def validate_output(text: str) -> ValidationReport:
@@ -57,5 +77,38 @@ def validate_output(text: str) -> ValidationReport:
                 validator="output",
             )
         )
+
+    # All snippets must produce a value for the wrapper contract/runtime.
+    if stripped.startswith("{"):
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            payload = None
+
+        if payload is not None:
+            chunks = _collect_wrapped_chunks(payload)
+            if chunks and any("return" not in chunk.lower() for chunk in chunks):
+                issues.append(
+                    ValidationIssue(
+                        code="missing_return",
+                        message="Lua wrapper snippet does not contain explicit return",
+                        hint="Return the final value explicitly from lua{...}lua snippet.",
+                        validator="output",
+                    )
+                )
+    else:
+        chunk = stripped
+        match = LUA_WRAPPER_RE.match(chunk)
+        if match:
+            chunk = match.group(1)
+        if "return" not in chunk.lower():
+            issues.append(
+                ValidationIssue(
+                    code="missing_return",
+                    message="Lua output does not contain explicit return",
+                    hint="Return the final computed value explicitly.",
+                    validator="output",
+                )
+            )
 
     return ValidationReport(ok=not issues, issues=issues)

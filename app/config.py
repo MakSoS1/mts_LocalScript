@@ -34,7 +34,10 @@ class Settings(BaseSettings):
     )
 
     luac_binary: str = "luac5.4"
+    luacheck_binary: str = ".tools/luacheck/luacheck.exe"
+    stylua_binary: str = ".tools/stylua/stylua.exe"
     syntax_require_luac: bool = False
+    generation_candidate_count: int = 3
     repair_max_passes: int = 1
 
     kb_dir: str = "app/kb"

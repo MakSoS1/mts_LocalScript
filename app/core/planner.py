@@ -35,10 +35,25 @@ class TaskPlan:
 PATH_RE = re.compile(r"wf\.(?:vars|initVariables)\.[A-Za-z0-9_.]+")
 TRAILING_PATH_PUNCTUATION = ".,;:!?)]}\"'"
 OUTPUT_KEY_PATTERNS = [
+    re.compile(
+        r"верни\s+(?:результат|значение)\s+в\s+(?:переменн\w+\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+        re.IGNORECASE,
+    ),
     re.compile(r"верни\s+результат\s+в\s+(?:переменн\w+\s+)?([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE),
     re.compile(r"верни\s+в\s+(?:переменн\w+\s+)?([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE),
+    re.compile(r"верни\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", re.IGNORECASE),
+    re.compile(
+        r"(?:определи|собери|посчитай|рассчитай|вычисли)\s+(?:значение\s+|флаг\s+|поле\s+|объект\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+        re.IGNORECASE,
+    ),
     re.compile(r"return\s+(?:the\s+result\s+)?(?:as|in)\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE),
+    re.compile(r"return\s+(?:the\s+)?value\s+(?:as|in)\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE),
     re.compile(r"return\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:as|object)", re.IGNORECASE),
+    re.compile(r"return\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", re.IGNORECASE),
+    re.compile(
+        r"(?:determine|build|calculate|compute)\s+(?:the\s+)?(?:value\s+|flag\s+|field\s+|object\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+        re.IGNORECASE,
+    ),
 ]
 
 

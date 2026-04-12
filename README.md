@@ -5,7 +5,7 @@
 
 Решение полностью локальное:
 - FastAPI + Ollama
-- pipeline: `planner -> retrieval -> generation -> validators -> repair (max 1 pass)`
+- pipeline: `planner -> retrieval -> generate 2-3 candidates -> luac/luacheck/stylua + domain/runtime validators -> targeted repair (max 1 pass)`
 - без внешних LLM API
 
 ## Что делает репозиторий
@@ -44,6 +44,8 @@
 
 ## Быстрый запуск (bootstrap)
 
+Это и есть рекомендуемый однострочный запуск для жюри.
+
 Linux/macOS:
 ```bash
 ./scripts/bootstrap.sh
@@ -59,6 +61,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
 2. `ollama pull qwen2.5-coder:7b`
 3. `ollama create localscript-qwen25coder7b -f Modelfiles/qwen25coder7b`
 4. `docker compose up --build -d`
+
+В Docker-образе уже есть:
+- `luac` (`lua5.4`)
+- `luacheck`
+- `stylua`
+
+То есть container-вариант запуска не зависит от локальной установки этих инструментов на хосте.
 
 Fail-fast поведение:
 - если Docker не запущен или не в Linux containers mode, скрипт завершится ошибкой.
@@ -140,8 +149,28 @@ py -m app.benchmark.runner --model localscript-qwen25coder7b --dataset app/bench
 - `OPTIONAL_BENCHMARK_MODELS=` (пусто)
 - `STRICT_MODELS=` (пусто)
 - `OLLAMA_NUM_BATCH=1`
+- `GENERATION_CANDIDATE_COUNT=3`
 - `SYNTAX_REQUIRE_LUAC=false` (в strict run включается скриптами)
 - `OLLAMA_BASE_URLS=http://host.docker.internal:11434,http://localhost:11434`
+
+Judge-профиль зафиксирован так:
+- `num_ctx=4096`
+- `num_predict=256`
+- `batch=1`
+- `parallel=1`
+- GPU-only runtime, без внешних AI API
+
+Windows host defaults в `.env.example` указывают на project-local `.tools` для `luacheck/stylua`.
+В Docker эти значения переопределяются на `luacheck` и `stylua`, потому что оба инструмента встроены в контейнер.
+
+## Соответствие заданию
+- Локальный запуск: весь runtime работает через Ollama + Docker локально, без внешних LLM-вендоров.
+- Агентность: есть clarification endpoint и управляемый цикл генерации/ремонта, а не один слепой ответ модели.
+- Валидация: используются `luac`, `luacheck`, `stylua`, доменные валидаторы и runtime-проверки на фикстурах.
+- Воспроизводимость: для жюри есть однострочный bootstrap на Windows и Linux/macOS, плюс container control run.
+- Без CI/CD: все проверки, контейнеры и окружения запускаются локально, как требуется условиями.
+- База знаний и retrieval работают локально из `app/kb`.
+- Архитектура C4 находится в `docs/C4.md`.
 
 ## Make targets
 - `make bootstrap`
