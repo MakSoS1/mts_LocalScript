@@ -33,12 +33,42 @@ class TaskPlan:
 
 
 PATH_RE = re.compile(r"wf\.(?:vars|initVariables)\.[A-Za-z0-9_.]+")
+TRAILING_PATH_PUNCTUATION = ".,;:!?)]}\"'"
+OUTPUT_KEY_PATTERNS = [
+    re.compile(
+        r"верни\s+(?:результат|значение)\s+в\s+(?:переменн\w+\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"верни\s+результат\s+в\s+(?:переменн\w+\s+)?([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE),
+    re.compile(r"верни\s+в\s+(?:переменн\w+\s+)?([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE),
+    re.compile(r"верни\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", re.IGNORECASE),
+    re.compile(
+        r"(?:определи|собери|посчитай|рассчитай|вычисли)\s+(?:значение\s+|флаг\s+|поле\s+|объект\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"return\s+(?:the\s+result\s+)?(?:as|in)\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE),
+    re.compile(r"return\s+(?:the\s+)?value\s+(?:as|in)\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE),
+    re.compile(r"return\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:as|object)", re.IGNORECASE),
+    re.compile(r"return\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", re.IGNORECASE),
+    re.compile(
+        r"(?:determine|build|calculate|compute)\s+(?:the\s+)?(?:value\s+|flag\s+|field\s+|object\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+        re.IGNORECASE,
+    ),
+]
 
 
 def _extract_paths(prompt: str) -> list[str]:
     found = PATH_RE.findall(prompt)
     deduped: list[str] = []
     for item in found:
+        normalized = item.rstrip(TRAILING_PATH_PUNCTUATION)
+        if not normalized:
+            continue
+        if normalized.endswith("."):
+            normalized = normalized.rstrip(".")
+        if not normalized:
+            continue
+        item = normalized
         if item not in deduped:
             deduped.append(item)
     return deduped
@@ -67,13 +97,31 @@ def _detect_task_type(prompt: str) -> tuple[str, float]:
 
 def _infer_output_contract(prompt: str, task_type: str) -> str:
     lowered = prompt.lower()
-    if any(token in lowered for token in ("raw lua", "только lua", "только код", "без json")):
+    prompt_without_paths = PATH_RE.sub(" ", prompt)
+    lowered_without_paths = prompt_without_paths.lower()
+
+    explicit_raw = any(token in lowered for token in ("raw lua", "только lua", "только код", "без json"))
+    explicit_json = any(
+        token in lowered_without_paths
+        for token in (
+            "json",
+            "lua{",
+            "оберт",
+            "wrapper",
+            "json object",
+            "верни json",
+            "return json",
+        )
+    )
+    has_explicit_wf_path = bool(_extract_paths(prompt))
+
+    if explicit_raw:
         return "raw_lua"
-    if any(token in lowered for token in ("json", "lua{", "оберт", "wrapper")):
+    if explicit_json:
         return "json_with_lua_wrappers"
-    if task_type in {"multi_field_json", "last_element", "increment", "keep_only_fields", "datum_time_to_iso"}:
-        return "json_with_lua_wrappers"
-    return "raw_lua"
+    if has_explicit_wf_path:
+        return "raw_lua"
+    return "json_with_lua_wrappers"
 
 
 def _default_output_keys(task_type: str) -> list[str]:
@@ -90,6 +138,18 @@ def _default_output_keys(task_type: str) -> list[str]:
     return by_type.get(task_type, [])
 
 
+def _extract_output_keys(prompt: str) -> list[str]:
+    keys: list[str] = []
+    for pattern in OUTPUT_KEY_PATTERNS:
+        for match in pattern.findall(prompt):
+            key = str(match).strip()
+            if not key:
+                continue
+            if key not in keys:
+                keys.append(key)
+    return keys
+
+
 def plan_task(prompt: str) -> TaskPlan:
     task_type, confidence = _detect_task_type(prompt)
     if task_type not in TASK_TYPES:
@@ -104,7 +164,7 @@ def plan_task(prompt: str) -> TaskPlan:
         assumptions.append("Use minimal valid Lua and avoid non-domain helpers.")
 
     needs_clarification = task_type == "generic" and confidence < 0.5 and not target_paths
-    output_keys = _default_output_keys(task_type)
+    output_keys = _extract_output_keys(prompt) or _default_output_keys(task_type)
 
     return TaskPlan(
         task_type=task_type,

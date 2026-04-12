@@ -13,6 +13,8 @@ Rules:
 4. If JSON output with Lua snippets is required, use exact wrapper format: lua{...}lua.
 5. Do not invent helper APIs except _utils.array.new and _utils.array.markAsArray.
 6. Produce the minimal correct solution.
+7. Lua snippets must contain explicit `return` of the final result.
+8. Never use nested wrappers like lua{lua{...}lua}lua.
 """.strip()
 
 
@@ -55,6 +57,7 @@ def build_generation_messages(
     plan: TaskPlan,
     request_mode: str,
     output_contract: str,
+    candidate_strategy: str | None = None,
 ) -> list[dict]:
     mode_instruction = {
         "direct_generation": "Generate directly.",
@@ -68,7 +71,9 @@ Task:
 
 Mode: {request_mode}
 Output contract: {output_contract}
+Expected output key(s): {plan.output_keys}
 Instruction: {mode_instruction}
+Candidate strategy: {candidate_strategy or 'Default balanced solution.'}
 External API contract reminder: input prompt -> output code.
 
 Planner output (JSON):
@@ -115,6 +120,8 @@ Validator errors:
 
 Expected output contract:
 {output_contract}
+Expected output key(s):
+{plan.output_keys}
 
 Planner output (JSON):
 {plan.to_prompt_json()}
@@ -126,6 +133,51 @@ Rules:
 {context.rules or 'N/A'}
 
 Return only corrected code.
+""".strip()
+
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_feedback_repair_messages(
+    prompt: str,
+    previous_code: str,
+    feedback: str,
+    context: RetrievalContext,
+    plan: TaskPlan,
+    output_contract: str,
+) -> list[dict]:
+    user_prompt = f"""
+Apply minimal changes to the previous code according to user feedback.
+Task:
+{prompt}
+
+User feedback:
+{feedback}
+
+Previous code:
+{previous_code}
+
+Expected output contract:
+{output_contract}
+Expected output key(s):
+{plan.output_keys}
+
+Planner output (JSON):
+{plan.to_prompt_json()}
+
+Rules:
+{context.rules or 'N/A'}
+
+Anti-patterns:
+{context.anti_patterns or 'N/A'}
+
+Requirements:
+1. Keep unchanged logic intact.
+2. Modify only what is required by feedback.
+3. Return only final code.
 """.strip()
 
     return [

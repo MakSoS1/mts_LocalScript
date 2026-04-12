@@ -33,6 +33,7 @@ ALLOWED_UTILS = {
 def validate_domain(code: str, prompt: str) -> ValidationReport:
     issues: list[ValidationIssue] = []
     lowered = code.lower()
+    prompt_lowered = prompt.lower()
 
     for pattern in JSONPATH_PATTERNS:
         if pattern.search(code):
@@ -116,5 +117,59 @@ def validate_domain(code: str, prompt: str) -> ValidationReport:
                 validator="domain",
             )
         )
+
+    if re.search(r"\bsum\s*\(", lowered) and not re.search(r"(local\s+sum\b|function\s+sum\b)", lowered):
+        issues.append(
+            ValidationIssue(
+                code="unknown_sum_helper",
+                message="Detected non-standard sum(...) helper which is not available in Lua runtime",
+                hint="Use a loop with tonumber(...) and accumulate into a local total variable.",
+                validator="domain",
+            )
+        )
+
+    if ("active" in prompt_lowered or "активн" in prompt_lowered) and (
+        "status" in prompt_lowered or "lead" in prompt_lowered or "заявк" in prompt_lowered
+    ):
+        if "status" not in lowered or "\"active\"" not in lowered and "'active'" not in lowered:
+            issues.append(
+                ValidationIssue(
+                    code="missing_status_active_filter",
+                    message="Prompt requires active-status filter but code does not enforce status == active",
+                    hint="Filter records by status == \"active\" (or equivalent active state) before returning.",
+                    validator="domain",
+                )
+            )
+
+    if re.search(r"\bnext\s*\([^,]+,\s*\d+\s*\)", lowered):
+        issues.append(
+            ValidationIssue(
+                code="risky_next_numeric_key",
+                message="Detected next(table, numeric_key) pattern that may crash on non-array tables",
+                hint="Avoid next(table, 1); check array shape via pairs/type(key) or explicit index checks.",
+                validator="domain",
+            )
+        )
+
+    if ("иначе false" in prompt_lowered or "otherwise false" in prompt_lowered) and "return {" in lowered:
+        issues.append(
+            ValidationIssue(
+                code="boolean_expected_table_return",
+                message="Prompt expects boolean true/false result, but code returns a table",
+                hint="Return a boolean value directly, not an object/table wrapper.",
+                validator="domain",
+            )
+        )
+
+    if any(token in prompt_lowered for token in ("sum", "суммар", "общий")) and "weight" in prompt_lowered:
+        if "tonumber" not in lowered:
+            issues.append(
+                ValidationIssue(
+                    code="missing_tonumber_weight",
+                    message="Weight aggregation should convert values to numbers safely",
+                    hint="Use tonumber(...) with nil checks before adding weight values.",
+                    validator="domain",
+                )
+            )
 
     return ValidationReport(ok=not issues, issues=issues)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.benchmark.oracle import oracle_semantic_pass
 from app.core.orchestrator import GenerationResult
 
 
@@ -42,6 +43,10 @@ def _task_type_from_case(case_id: str) -> str:
 
 
 def _semantic_task_pass(task_type: str, code: str) -> bool:
+    oracle_result = oracle_semantic_pass(task_type, code)
+    if oracle_result is not None:
+        return oracle_result
+
     lowered = code.lower()
     by_task = {
         "last_element": ["wf.vars.emails", "#wf.vars.emails"],
@@ -60,7 +65,7 @@ def _semantic_task_pass(task_type: str, code: str) -> bool:
 
 
 def semantic_pass(case: dict, code: str) -> bool:
-    task_type = _task_type_from_case(str(case.get("id", "")))
+    task_type = str(case.get("task_type", "")).strip().lower() or _task_type_from_case(str(case.get("id", "")))
     if task_type != "generic":
         return _semantic_task_pass(task_type, code)
 

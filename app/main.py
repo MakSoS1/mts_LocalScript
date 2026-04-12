@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.routes_agent import router as agent_router
 from app.api.routes_benchmark import router as benchmark_router
 from app.api.routes_generate import router as generate_router
 from app.api.routes_health import router as health_router
@@ -30,6 +31,7 @@ app = FastAPI(title="LocalScript Agent API", version="1.0.0", lifespan=lifespan)
 
 
 app.include_router(generate_router)
+app.include_router(agent_router)
 app.include_router(health_router)
 app.include_router(models_router)
 app.include_router(benchmark_router)
