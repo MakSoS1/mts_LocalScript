@@ -16,10 +16,24 @@ export OPTIONAL_BENCHMARK_MODELS=""
 export STRICT_MODELS=""
 export OLLAMA_NUM_BATCH="1"
 export OLLAMA_NUM_PARALLEL="1"
+export COMPOSE_BAKE="false"
+export DOCKER_BUILDKIT="0"
+export COMPOSE_DOCKER_CLI_BUILD="0"
+export BASE_IMAGE="localscript-python311-slim:local"
+
+if ! docker image inspect "${BASE_IMAGE}" >/dev/null 2>&1; then
+  if ! docker image inspect python:3.11-slim >/dev/null 2>&1; then
+    echo "Base image python:3.11-slim is not available locally. Pull it from an interactive Docker session first."
+    exit 1
+  fi
+  docker tag python:3.11-slim "${BASE_IMAGE}"
+fi
 
 python scripts/judge_check.py --phase preflight --model localscript-qwen25coder7b
 
-docker compose up --build -d
+docker build --build-arg "BASE_IMAGE=${BASE_IMAGE}" -f docker/Dockerfile.api -t localscript-agent-api:latest .
+
+docker compose up --no-build -d
 
 mkdir -p app/reports
 VRAM_LOG="app/reports/vram_samples.csv"

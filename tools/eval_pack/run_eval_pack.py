@@ -10,6 +10,8 @@ from typing import Any
 
 import requests
 
+from app.benchmark.oracle import runtime_oracle_pass, _lua_binary
+
 
 MANUAL_SUITES = {"no-network", "judge-lock", "gpu-offload-guard"}
 
@@ -39,6 +41,17 @@ def _mode_pass(expected_mode: str, code: str) -> bool:
 def _forbidden_pass(code: str, forbidden_patterns: list[str]) -> bool:
     lowered = code.lower()
     return all(pattern.lower() not in lowered for pattern in forbidden_patterns)
+
+
+def _runtime_pass(code: str, case: dict[str, Any]) -> tuple[bool | None, str]:
+    wf_fixture = case.get("wf_fixture")
+    expected_runtime_output = case.get("expected_runtime_output")
+    if not wf_fixture or expected_runtime_output is None:
+        return None, "no runtime data"
+
+    expected_json_key = case.get("expected_json_key")
+    ok, detail = runtime_oracle_pass(code, wf_fixture, expected_runtime_output, expected_json_key)
+    return ok, detail
 
 
 def _post_json(base_url: str, path: str, payload: dict[str, Any]) -> tuple[bool, dict[str, Any], float]:
@@ -71,13 +84,21 @@ def _run_generation_case(base_url: str, case: dict[str, Any]) -> dict[str, Any]:
     code = str(body.get("code", ""))
     mode_ok = _mode_pass(str(case.get("expected_mode", "")), code)
     forbidden_ok = _forbidden_pass(code, [str(p) for p in case.get("forbidden_patterns", [])])
-    case_pass = mode_ok and forbidden_ok
+    runtime_ok, runtime_detail = _runtime_pass(code, case)
+
+    has_runtime = runtime_ok is not None
+    if has_runtime:
+        case_pass = mode_ok and forbidden_ok and runtime_ok
+    else:
+        case_pass = mode_ok and forbidden_ok
 
     followup = str(case.get("followup_prompt", "")).strip()
     expected_after_followup = str(case.get("expected_after_followup", "")).strip()
     followup_ok = True
     followup_status = "not_applicable"
     followup_code = ""
+    followup_runtime_ok: bool | None = None
+    followup_runtime_detail = ""
     if followup:
         followup_ok_http, followup_body, _ = _post_json(
             base_url,
@@ -93,6 +114,9 @@ def _run_generation_case(base_url: str, case: dict[str, Any]) -> dict[str, Any]:
             followup_status = str(followup_body.get("status", "unknown"))
             followup_code = str(followup_body.get("code", ""))
             followup_ok = expected_after_followup in followup_code if expected_after_followup else True
+            fr_ok, fr_detail = _runtime_pass(followup_code, case)
+            followup_runtime_ok = fr_ok
+            followup_runtime_detail = fr_detail
         else:
             followup_ok = False
         case_pass = case_pass and followup_ok
@@ -102,6 +126,7 @@ def _run_generation_case(base_url: str, case: dict[str, Any]) -> dict[str, Any]:
     if runs > 1:
         outputs: list[str] = [code]
         format_passes = 1 if mode_ok and forbidden_ok else 0
+        runtime_passes = 1 if runtime_ok else 0
         for _ in range(runs - 1):
             ok_more, body_more, _ = _post_json(base_url, "/generate", {"prompt": case["prompt"]})
             if not ok_more:
@@ -112,22 +137,34 @@ def _run_generation_case(base_url: str, case: dict[str, Any]) -> dict[str, Any]:
                 more_code, [str(p) for p in case.get("forbidden_patterns", [])]
             ):
                 format_passes += 1
+            mr_ok, _ = _runtime_pass(more_code, case)
+            if mr_ok:
+                runtime_passes += 1
         counts = Counter(outputs)
         most_common = counts.most_common(1)[0][1] if counts else 0
         determinism = {
             "runs": runs,
             "identical_ratio": round(most_common / max(len(outputs), 1), 4),
             "format_valid_ratio": round(format_passes / max(len(outputs), 1), 4),
+            "runtime_valid_ratio": round(runtime_passes / max(len(outputs), 1), 4) if has_runtime else None,
         }
+
+    checks = {
+        "mode_pass": mode_ok,
+        "forbidden_pass": forbidden_ok,
+        "followup_pass": followup_ok,
+    }
+    if has_runtime:
+        checks["runtime_pass"] = runtime_ok
+        checks["runtime_detail"] = runtime_detail
+    if followup_runtime_ok is not None:
+        checks["followup_runtime_pass"] = followup_runtime_ok
+        checks["followup_runtime_detail"] = followup_runtime_detail
 
     return {
         "status": "passed" if case_pass else "failed",
         "latency_ms": round(latency_ms, 2),
-        "checks": {
-            "mode_pass": mode_ok,
-            "forbidden_pass": forbidden_ok,
-            "followup_pass": followup_ok,
-        },
+        "checks": checks,
         "response_status": "generated",
         "code": code,
         "followup_status": followup_status,
@@ -224,6 +261,7 @@ def run_eval_pack(base_url: str, dataset: Path, output_dir: Path) -> dict[str, A
         "skipped": skipped,
         "pass_rate": round(passed / scored_total, 4),
         "base_url": base_url,
+        "lua_binary": _lua_binary(),
     }
 
     payload = {
@@ -242,6 +280,7 @@ def run_eval_pack(base_url: str, dataset: Path, output_dir: Path) -> dict[str, A
         f"# Eval Pack Report: {run_id}",
         "",
         f"- Base URL: `{base_url}`",
+        f"- Lua binary: `{_lua_binary()}`",
         f"- Total: `{summary['total_cases']}`",
         f"- Passed: `{summary['passed']}`",
         f"- Failed: `{summary['failed']}`",

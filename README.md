@@ -1,212 +1,112 @@
-# LocalScript Agent Pipeline (Final Submission Profile)
+# LocalScript Agent
 
-Финальный submission-профиль зафиксирован на одной основной модели:
-- `required_demo_model = localscript-qwen25coder7b`
+Локальный AI-агент для генерации Lua/LocalScript без внешних LLM API в runtime.
 
-Решение полностью локальное:
-- FastAPI + Ollama
-- pipeline: `planner -> retrieval -> generate 2-3 candidates -> luac/luacheck/stylua + domain/runtime validators -> targeted repair (max 1 pass)`
-- без внешних LLM API
-
-## Что делает репозиторий
-- Поднимает HTTP API для генерации Lua/LocalScript (`/generate`, `/agent/generate`)
-- Дает health/model introspection (`/health`, `/models`)
-- Запускает benchmark (`/benchmark`, `app.benchmark.runner`)
-- Содержит strict submission-пайплайн (`scripts/control_run*`, `scripts/judge_check.py`)
-- Хранит расширенный Eval Pack отдельно от финального submission pipeline (`tools/eval_pack`)
+## Что делает проект
+- Поднимает API для генерации Lua (`/generate`, `/agent/generate`)
+- Проверяет код валидаторами (format/contract/domain/syntax)
+- Поддерживает benchmark и контрольный pipeline
+- Имеет веб-интерфейс (GUI) для чата
 
 ## Требования
+- Docker (Linux containers)
+- Ollama (`http://localhost:11434`)
+- Модель для демо: `localscript-qwen25coder7b`
 
-Обязательные:
-- Docker (Docker Engine / Docker Desktop) с Linux containers mode
-- Ollama, доступный по `http://localhost:11434`
-- Python 3.11+ (для локального запуска скриптов/тестов)
-
-Для strict judge-чеков:
-- NVIDIA GPU + `nvidia-smi` (проверка `100% GPU` и peak VRAM)
-- `luac5.4` (или `luac`) в `PATH` для host strict запуска (`scripts/control_run.sh/.ps1`)
-
-Примечание:
-- container-вариант (`control_run_container.*`) позволяет проводить strict syntax внутри контейнера (`lua5.4` ставится в `docker/Dockerfile.api`).
-
-## Основной API контракт
-- `POST /generate`
-  - request: `{"prompt":"...", "model":"optional", "mode":"optional"}`
-  - response: `{"code":"..."}`
-- `POST /agent/generate`
-  - demo endpoint для наблюдаемой агентности (clarification + repair)
-  - статусы:
-    - `clarification_required`: возвращает `question`, `acceptable_assumptions`, `assumptions`, `output_contract`
-    - `generated` или `repaired`: возвращает `code` + метаданные
-- `GET /health`
-- `GET /models`
-- `POST /benchmark`
-
-## Быстрый запуск (bootstrap)
-
-Это и есть рекомендуемый однострочный запуск для жюри.
-
+## API одной командой
 Linux/macOS:
 ```bash
-./scripts/bootstrap.sh
+./scripts/start_api.sh
 ```
 
 Windows PowerShell:
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start_api.ps1
 ```
 
-`bootstrap` делает:
-1. создает `.env` из `.env.example` (если `.env` отсутствует)
-2. `ollama pull qwen2.5-coder:7b`
-3. `ollama create localscript-qwen25coder7b -f Modelfiles/qwen25coder7b`
-4. `docker compose up --build -d`
+Что делает этот запуск:
+- проверяет Docker/Ollama
+- создаёт `.env`, если файла нет
+- подтягивает/создаёт модель `localscript-qwen25coder7b` (если её нет)
+- проверяет порт API и при конфликте автоматически переключает с `8080` на `18080`
+- собирает контейнер API
+- поднимает API в фоне (`docker compose up -d`)
 
-В Docker-образе уже есть:
-- `luac` (`lua5.4`)
-- `luacheck`
-- `stylua`
+API работает, пока вы его не остановите (`docker compose stop api`).
 
-То есть container-вариант запуска не зависит от локальной установки этих инструментов на хосте.
-
-Fail-fast поведение:
-- если Docker не запущен или не в Linux containers mode, скрипт завершится ошибкой.
-
-## Быстрая проверка после bootstrap
+## Интерфейс отдельно
+Linux/macOS:
 ```bash
-curl -s http://localhost:8080/health
-curl -s http://localhost:8080/models
+./scripts/start_ui.sh
 ```
 
-`/health` возвращает:
-- `status=ok`, если Ollama доступен и required модель установлена
-- `status=degraded`, если required модель отсутствует или Ollama недоступен
-
-## Agent endpoint: практический сценарий
-
-1) Запрос с неоднозначной задачей:
-```json
-POST /agent/generate
-{
-  "prompt": "Сделай LocalScript для GUI-инвентаря"
-}
-```
-Можно получить `status=clarification_required`.
-
-2) Подтверждение допущения и генерация:
-```json
-POST /agent/generate
-{
-  "prompt": "Сделай LocalScript для GUI-инвентаря",
-  "assumption": "raw_lua"
-}
-```
-
-3) Доисправление минимальным патчем:
-```json
-POST /agent/generate
-{
-  "prompt": "Сделай LocalScript для GUI-инвентаря",
-  "previous_code": "...",
-  "feedback": "Добавь debounce для кнопки"
-}
-```
-
-## Контрольный прогон (submission check)
-
-Host strict (рекомендуется для финальной self-check перед отправкой):
-- Linux/macOS: `./scripts/control_run.sh`
-- Windows: `powershell -ExecutionPolicy Bypass -File .\scripts\control_run.ps1`
-
-Container reproducible (удобно для воспроизводимости окружения):
-- Linux/macOS: `./scripts/control_run_container.sh`
-- Windows: `powershell -ExecutionPolicy Bypass -File .\scripts\control_run_container.ps1`
-
-### Что делают оба варианта
-1. чистят workspace (`app/reports/*`, `.pytest_cache`, `__pycache__`, `*.pyc`, `.DS_Store`)
-2. фиксируют профиль модели (`REQUIRED_DEMO_MODEL/DEFAULT_MODEL=localscript-qwen25coder7b`, `OPTIONAL_BENCHMARK_MODELS=`)
-3. включают runtime guardrails (`OLLAMA_NUM_BATCH=1`, `OLLAMA_NUM_PARALLEL=1`)
-4. выполняют preflight через `scripts/judge_check.py --phase preflight`
-5. запускают `pytest`
-6. запускают `R3` benchmark на `dataset_public` и `dataset_augmented`
-7. строят `comparative_report.md`
-8. выполняют post-check через `scripts/judge_check.py --phase post` (GPU-only + peak VRAM <= 8GB)
-9. печатают `ollama ps` и `nvidia-smi`
-
-### Важное различие между host и container
-- `control_run.sh/.ps1` запускает preflight с `--strict-luac` (требует `luac5.4` на хосте)
-- `control_run_container.sh/.ps1` запускает preflight без `--strict-luac` на хосте, но внутри контейнера ставит `SYNTAX_REQUIRE_LUAC=true` и исполняет strict syntax в контейнере
-
-## Пример ручного benchmark запуска
+Windows PowerShell:
 ```powershell
-$env:OLLAMA_BASE_URLS="http://localhost:11434"
-py -m app.benchmark.runner --model localscript-qwen25coder7b --dataset app/benchmark/dataset_public.jsonl --mode R3
+powershell -ExecutionPolicy Bypass -File .\scripts\start_ui.ps1
 ```
 
-## Конфиг финального профиля (`.env.example`)
-- `REQUIRED_DEMO_MODEL=localscript-qwen25coder7b`
-- `DEFAULT_MODEL=localscript-qwen25coder7b`
-- `OPTIONAL_BENCHMARK_MODELS=` (пусто)
-- `STRICT_MODELS=` (пусто)
-- `OLLAMA_NUM_BATCH=1`
-- `GENERATION_CANDIDATE_COUNT=3`
-- `SYNTAX_REQUIRE_LUAC=false` (в strict run включается скриптами)
-- `OLLAMA_BASE_URLS=http://host.docker.internal:11434,http://localhost:11434`
+По умолчанию GUI: `http://localhost:<API_PORT>/ui` (также доступно `/`).
+Скрипт `start_api` печатает итоговый URL и сохраняет порт в `.api-port`, `start_ui` подхватывает его автоматически.
 
-Judge-профиль зафиксирован так:
-- `num_ctx=4096`
-- `num_predict=256`
-- `batch=1`
-- `parallel=1`
-- GPU-only runtime, без внешних AI API
+## Полный контрольный прогон одной командой (Docker-only)
+Linux/macOS:
+```bash
+./scripts/control_run_container.sh
+```
 
-Windows host defaults в `.env.example` указывают на project-local `.tools` для `luacheck/stylua`.
-В Docker эти значения переопределяются на `luacheck` и `stylua`, потому что оба инструмента встроены в контейнер.
+Windows PowerShell:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\control_run_container.ps1
+```
 
-## Соответствие заданию
-- Локальный запуск: весь runtime работает через Ollama + Docker локально, без внешних LLM-вендоров.
-- Агентность: есть clarification endpoint и управляемый цикл генерации/ремонта, а не один слепой ответ модели.
-- Валидация: используются `luac`, `luacheck`, `stylua`, доменные валидаторы и runtime-проверки на фикстурах.
-- Воспроизводимость: для жюри есть однострочный bootstrap на Windows и Linux/macOS, плюс container control run.
-- Без CI/CD: все проверки, контейнеры и окружения запускаются локально, как требуется условиями.
-- База знаний и retrieval работают локально из `app/kb`.
-- Архитектура C4 находится в `docs/C4.md`.
+Что делает команда:
+- очищает workspace
+- фиксирует demo-профиль модели
+- собирает Docker image
+- поднимает контейнер
+- запускает `pytest` в контейнере
+- запускает benchmark (`dataset_public` + `dataset_augmented`)
+- строит comparative report
+- делает post-check (включая VRAM guard)
 
-## Make targets
-- `make bootstrap`
-- `make clean`
-- `make control-run`
-- `make control-run-container`
-- `make benchmark MODEL=localscript-qwen25coder7b DATASET=app/benchmark/dataset_public.jsonl MODE=R3`
-- `make judge-preflight`
-- `make judge-post`
-- `make eval-pack`
+## Кроссплатформенность контейнера
+Контейнер универсальный для Docker Engine / Docker Desktop на Windows, Linux, macOS:
+- образ собирается как Linux-контейнер (`Docker daemon = linux`)
+- запуск не завязан на host shell (есть `.sh` и `.ps1` скрипты)
+- compose-конфиг одинаковый для всех ОС
 
-## Eval Pack (вне submission pipeline)
-- Папка: `tools/eval_pack/`
-- Назначение: расширенные проверки (metamorphic, oracle, mutation, false-friend, ambiguity, multi-turn, determinism и др.)
-- Эти проверки не запускаются из `bootstrap/control_run` и хранятся отдельно от финального judge pipeline
+## Если Docker в SSH ругается на credentials helper
+Для удалённого Windows-хоста скрипты уже используют устойчивый путь:
+- сборка через `docker build`
+- запуск через `docker compose up --no-build`
+- локальный base image alias `localscript-python311-slim:local`
 
-## Ключевые файлы
-- `app/main.py` — сборка FastAPI приложения и роутеров
-- `app/core/planner.py` — task planning + контракт вывода
-- `app/core/retrieval.py` — retrieval контекста
-- `app/core/orchestrator.py` — orchestration + repair loop
-- `app/validators/*` — domain/format/syntax/task validators
-- `scripts/bootstrap.*` — воспроизводимый bootstrap
-- `scripts/control_run.*` — host strict контрольный прогон
-- `scripts/control_run_container.*` — container reproducible контрольный прогон
-- `scripts/judge_check.py` — preflight/post judge guardrails
+Нужно только, чтобы на хосте уже был `python:3.11-slim` (скрипт автоматически перетегирует его в локальный alias).
 
-## Официальные источники моделей
-- [qwen2.5-coder](https://ollama.com/library/qwen2.5-coder)
-- [deepseek-r1](https://ollama.com/library/deepseek-r1)
-- [qwen3](https://ollama.com/library/qwen3)
-- [gemma3](https://ollama.com/library/gemma3)
-- [gemma4](https://ollama.com/library/gemma4)
+## Быстрая проверка генерации через API
+```bash
+curl -s -X POST http://localhost:8080/agent/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Из номера телефона клиента phone очисти все символы кроме цифр. Если номер начинается с 8 и содержит 11 цифр, замени первую цифру на 7. Верни результат в переменную normalizedPhone.",
+    "assumption": "json_with_lua_wrappers"
+  }'
+```
 
-## Чеклист для жюри
-1. Запустить bootstrap (`scripts/bootstrap.ps1` или `scripts/bootstrap.sh`).
-2. Проверить `/health` и `/models`.
-3. Выполнить `scripts/control_run.ps1`/`scripts/control_run.sh` (или container-вариант).
-4. Проверить `app/reports/*.json` и `comparative_report.md`.
+## Полезные команды
+```bash
+# API одной командой через Make
+make api-up
+
+# GUI отдельно
+make ui-up
+
+# локальные тесты
+pytest -q
+
+# benchmark вручную
+python -m app.benchmark.runner --model localscript-qwen25coder7b --dataset app/benchmark/dataset_public.jsonl --mode R3
+
+# остановить контейнер
+docker compose down
+```

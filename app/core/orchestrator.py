@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +10,8 @@ from app.core.planner import TaskPlan, plan_task
 from app.core.prompts import (
     build_feedback_repair_messages,
     build_generation_messages,
+    build_ir_generation_messages,
+    build_ir_to_lua_messages,
     build_repair_messages,
 )
 from app.core.retrieval import LocalRetriever
@@ -139,6 +142,7 @@ class Orchestrator:
         output_contract: str,
         plan: TaskPlan,
         strategy: str,
+        ir_context: dict | None = None,
     ) -> CandidateAssessment:
         code = normalize_output_contract(
             raw_output,
@@ -184,8 +188,77 @@ class Orchestrator:
                 issues.append(f"{tool_name}:{label}:{details}")
         return issues
 
+    def _build_structured_failure_report(self, candidate: CandidateAssessment) -> list[dict[str, str]]:
+        reports: list[dict[str, str]] = []
+        for issue in candidate.validation.all_issues:
+            category = issue.validator
+            detail = issue.hint or issue.message
+            suggestion = ""
+            if category == "syntax":
+                suggestion = "Fix Lua syntax error"
+            elif category == "contract":
+                suggestion = f"Expected {candidate.validation.contract.ok}, adjust output format"
+            elif category == "domain":
+                suggestion = "Remove forbidden JsonPath or non-domain API"
+            elif category == "output":
+                suggestion = "Ensure output structure matches expected keys"
+            elif category == "task":
+                suggestion = "Address task-specific validation hint"
+            reports.append({"category": category, "detail": detail, "suggestion": suggestion})
+        for chunk in candidate.lua_quality["chunks"]:
+            label = chunk["label"]
+            for tool_name in ("syntax", "lint", "format"):
+                tool = chunk[tool_name]
+                if tool["status"] != "failed":
+                    continue
+                detail = tool.get("details") or f"{tool_name} failed"
+                suggestion = ""
+                if tool_name == "syntax":
+                    suggestion = "Fix Lua syntax error in chunk"
+                elif tool_name == "lint":
+                    suggestion = "Address luacheck warnings"
+                elif tool_name == "format":
+                    suggestion = "Apply stylua formatting"
+                reports.append({"category": tool_name, "detail": f"{label}: {detail}", "suggestion": suggestion})
+        return reports
+
+    def _try_ir_generation(
+        self,
+        prompt: str,
+        plan: TaskPlan,
+        context: Any,
+        output_contract: str,
+        model_name: str,
+    ) -> dict | None:
+        ir_messages = build_ir_generation_messages(prompt, context, plan, output_contract)
+        try:
+            ir_response = self.client.chat(
+                model_name,
+                ir_messages,
+                options=self._chat_options(temperature=0.05, top_p=0.9),
+            )
+            content = ir_response.content.strip()
+            if content.startswith("```"):
+                first_newline = content.index("\n") if "\n" in content else -1
+                if first_newline >= 0:
+                    content = content[first_newline + 1:]
+                closing = content.rfind("```")
+                if closing >= 0:
+                    content = content[:closing]
+                content = content.strip()
+            ir_dict = json.loads(content)
+            if not isinstance(ir_dict, dict):
+                return None
+            required_keys = {"read_from", "operation", "return_as"}
+            if not required_keys.issubset(ir_dict.keys()):
+                return None
+            return ir_dict
+        except (json.JSONDecodeError, ValueError, KeyError):
+            LOGGER.info("ir_generation_failed, falling back to direct generation")
+            return None
+
     def _candidate_rank(self, candidate: CandidateAssessment) -> tuple[int, ...]:
-        task_ok = True if candidate.validation.task is None else candidate.validation.task.ok
+        task_hints = 0 if candidate.validation.task is None else len(candidate.validation.task.issues)
         quality = candidate.lua_quality["summary"]
         failed_tools = sum(
             1 for key in ("syntax_pass", "lint_pass", "format_pass") if quality.get(key) is False
@@ -196,7 +269,7 @@ class Orchestrator:
             1 if candidate.validation.output.ok else 0,
             1 if candidate.validation.syntax.ok else 0,
             1 if candidate.validation.domain.ok else 0,
-            1 if task_ok else 0,
+            -task_hints,
             1 if quality.get("quality_gate_pass") is True else 0,
             1 if quality.get("syntax_pass") is True else 0,
             1 if quality.get("lint_pass") is True else 0,
@@ -236,17 +309,35 @@ class Orchestrator:
         )
 
         LOGGER.info("generation_start model=%s request_mode=%s benchmark_mode=%s", model_name, request_mode, benchmark_mode)
+
+        ir_dict: dict | None = None
+        ir_json_str: str | None = None
+        if include_examples:
+            ir_dict = self._try_ir_generation(prompt, plan, context, output_contract, model_name)
+            if ir_dict is not None:
+                ir_json_str = json.dumps(ir_dict, ensure_ascii=False, indent=2)
+                LOGGER.info("ir_generation_success operation=%s", ir_dict.get("operation"))
+
         initial_candidates: list[CandidateAssessment] = []
         temperatures = [0.05, 0.15, 0.25]
         for index, strategy in enumerate(self._candidate_strategies()):
-            generation_messages = build_generation_messages(
-                prompt,
-                context,
-                plan,
-                request_mode,
-                output_contract,
-                candidate_strategy=strategy,
-            )
+            if ir_json_str is not None:
+                generation_messages = build_ir_to_lua_messages(
+                    ir_json_str,
+                    context,
+                    plan,
+                    output_contract,
+                    original_task=prompt,
+                )
+            else:
+                generation_messages = build_generation_messages(
+                    prompt,
+                    context,
+                    plan,
+                    request_mode,
+                    output_contract,
+                    candidate_strategy=strategy,
+                )
             response = self.client.chat(
                 model_name,
                 generation_messages,
@@ -262,8 +353,63 @@ class Orchestrator:
                     output_contract=output_contract,
                     plan=plan,
                     strategy=strategy,
+                    ir_context=ir_dict,
                 )
             )
+
+        best_initial = self._pick_best_candidate(initial_candidates)
+        raw_output = best_initial.raw_output
+        repaired_output: str | None = None
+        final_candidate = best_initial
+        used_repair = False
+
+        if allow_repair and (not self._candidate_is_acceptable(best_initial)) and self.settings.repair_max_passes > 0:
+            current = best_initial
+            for _ in range(self.settings.repair_max_passes):
+                failure_report = self._build_structured_failure_report(current)
+                if not failure_report:
+                    break
+
+                validator_errors = self._candidate_issue_strings(current)
+                repair_messages = build_repair_messages(
+                    prompt,
+                    current.code,
+                    validator_errors,
+                    context,
+                    plan,
+                    output_contract=output_contract,
+                )
+                if ir_json_str is not None:
+                    ir_section = f"\n\nIR specification (reference):\n{ir_json_str}"
+                    repair_messages[1]["content"] += ir_section
+                    structured_errors = "\n".join(
+                        f"- [{r['category']}] {r['detail']} | Suggestion: {r['suggestion']}"
+                        for r in failure_report
+                    )
+                    repair_messages[1]["content"] += f"\n\nStructured failure report:\n{structured_errors}"
+
+                repair_response = self.client.chat(
+                    model_name,
+                    repair_messages,
+                    options=self._chat_options(temperature=0.05, top_p=0.9),
+                )
+                repaired_output = repair_response.content
+                repaired_candidate = self._assess_candidate(
+                    raw_output=repaired_output,
+                    prompt=prompt,
+                    output_contract=output_contract,
+                    plan=plan,
+                    strategy="targeted_repair",
+                    ir_context=ir_dict,
+                )
+                best_after_repair = self._pick_best_candidate([current, repaired_candidate])
+                if best_after_repair == current:
+                    break
+                current = best_after_repair
+                used_repair = True
+                if self._candidate_is_acceptable(current):
+                    break
+            final_candidate = current
 
         best_initial = self._pick_best_candidate(initial_candidates)
         raw_output = best_initial.raw_output
@@ -309,11 +455,12 @@ class Orchestrator:
             final_candidate = current
 
         LOGGER.info(
-            "generation_end model=%s ok=%s issues=%s used_repair=%s",
+            "generation_end model=%s ok=%s issues=%s used_repair=%s ir_used=%s",
             model_name,
             final_candidate.validation.ok,
             len(final_candidate.validation.all_issues),
             used_repair,
+            ir_dict is not None,
         )
 
         return GenerationResult(

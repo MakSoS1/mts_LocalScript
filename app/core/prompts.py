@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from app.core.planner import TaskPlan
 from app.core.retrieval import RetrievalContext
 
@@ -8,13 +10,32 @@ SYSTEM_PROMPT = """
 You generate only valid Lua code for a constrained LowCode environment.
 Rules:
 1. Never use JsonPath.
-2. Use direct field access via wf.vars and wf.initVariables where relevant.
+2. Use ONLY the paths mentioned in the task (wf.vars.X, wf.initVariables.Y). Do NOT invent paths like RESTbody.result unless explicitly stated in the task.
 3. Return only code (or valid JSON if requested), without markdown fences and prose.
 4. If JSON output with Lua snippets is required, use exact wrapper format: lua{...}lua.
 5. Do not invent helper APIs except _utils.array.new and _utils.array.markAsArray.
 6. Produce the minimal correct solution.
 7. Lua snippets must contain explicit `return` of the final result.
-8. Never use nested wrappers like lua{lua{...}lua}lua.
+8. NEVER use nested wrappers like lua{lua{...}lua}lua. Each lua{...}lua must appear exactly once per JSON key value and must not contain another lua{ or }lua inside.
+9. In lua{...}lua wrappers, write plain Lua code with return statement. Do NOT wrap inner values in another lua{...}lua.
+10. Always use tonumber() for numeric comparisons and arithmetic on wf.vars values.
+11. Always guard against nil with `or 0`, `or ""`, `or {}` as appropriate.
+""".strip()
+
+IR_SYSTEM_PROMPT = """
+You produce a JSON intermediate representation (IR) for a Lua LowCode task.
+Output ONLY a single JSON object with these fields:
+- "read_from": exact dot-path where input data lives (e.g. "wf.vars.try_count_n" or "wf.vars.deals"). Use ONLY paths mentioned in the task. Do NOT invent paths like RESTbody.result unless explicitly stated.
+- "operation": one of get_element, increment, keep_only_fields, convert_time, filter, normalize_array, conditional_return, aggregate, build_string, multi_field, generic
+- "fields": array of field names to keep/remove (if applicable, else [])
+- "return_as": "json_with_lua_wrappers" or "raw_lua"
+- "json_key": the output key name for JSON wrapper (if return_as is json_with_lua_wrappers)
+- "edge_cases": array of edge case names like nil_guard, empty_array, string_number, missing_field
+- "mutate_in_place": true or false
+Rules:
+1. read_from MUST use paths from the task text. If the task says "wf.vars.deals", use "wf.vars.deals", NOT "wf.vars.RESTbody.result".
+2. Do NOT add intermediate path segments not present in the task.
+3. Output ONLY valid JSON, no markdown fences, no prose.
 """.strip()
 
 
@@ -178,6 +199,86 @@ Requirements:
 1. Keep unchanged logic intact.
 2. Modify only what is required by feedback.
 3. Return only final code.
+""".strip()
+
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_ir_generation_messages(
+    task: str,
+    context: RetrievalContext,
+    plan: TaskPlan,
+    output_contract: str,
+) -> list[dict]:
+    user_prompt = f"""
+Produce the JSON-IR for the following task.
+Task:
+{task}
+
+Output contract: {output_contract}
+Expected output key(s): {plan.output_keys}
+
+Planner output (JSON):
+{plan.to_prompt_json()}
+
+Operation type: {plan.operation_type}
+Source paths: {plan.source_paths}
+Fields to keep: {plan.fields_to_keep}
+Edge cases: {plan.edge_cases}
+Time format conversion: {plan.time_format_conversion or 'none'}
+Needs array normalization: {plan.needs_array_normalization}
+
+Top Examples:
+{_format_examples(context)}
+
+Output ONLY the JSON-IR object, nothing else.
+""".strip()
+
+    return [
+        {"role": "system", "content": IR_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_ir_to_lua_messages(
+    ir_json: str,
+    context: RetrievalContext,
+    plan: TaskPlan,
+    output_contract: str,
+    *,
+    original_task: str = "",
+) -> list[dict]:
+    task_section = f"\nOriginal task:\n{original_task}\n" if original_task else ""
+    user_prompt = f"""
+Generate Lua code from the following IR specification.
+{task_section}
+IR:
+{ir_json}
+
+Output contract: {output_contract}
+Expected output key(s): {plan.output_keys}
+
+Planner output (JSON):
+{plan.to_prompt_json()}
+
+Local Rules:
+{context.rules or 'N/A'}
+
+Anti-patterns:
+{context.anti_patterns or 'N/A'}
+
+Top Examples:
+{_format_examples(context)}
+
+Requirements:
+1. Implement exactly what the IR specifies.
+2. Handle all edge cases listed in the IR.
+3. Respect the return_as format (json_with_lua_wrappers or raw_lua).
+4. Never nest lua{{...}}lua wrappers inside other lua{{...}}lua wrappers.
+5. Return only final code.
 """.strip()
 
     return [

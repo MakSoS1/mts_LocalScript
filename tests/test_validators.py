@@ -62,7 +62,7 @@ def test_syntax_validator_allows_missing_luac_in_soft_mode(monkeypatch) -> None:
     assert report.ok
 
 
-def test_task_validator_flags_wrong_keep_only_fields_logic() -> None:
+def test_task_validator_hints_wrong_keep_only_fields_logic() -> None:
     code = """
 result = wf.vars.RESTbody.result
 for _, entry in pairs(result) do
@@ -75,14 +75,14 @@ end
 return result
 """.strip()
     report = validate_task_specific(code, "keep_only_fields")
-    assert not report.ok
-    assert any(issue.code == "task_keep_only_fields_wrong_logic" for issue in report.issues)
+    assert report.ok
+    assert any(issue.code == "hint_keep_only_fields_wrong_logic" for issue in report.issues)
 
 
-def test_task_validator_flags_direct_os_time_iso_conversion() -> None:
+def test_task_validator_hints_direct_os_time_iso_conversion() -> None:
     report = validate_task_specific("return os.time(wf.initVariables.recallTime)", "iso_to_unix")
-    assert not report.ok
-    assert any(issue.code == "task_iso_to_unix_direct_os_time" for issue in report.issues)
+    assert report.ok
+    assert any(issue.code == "hint_iso_to_unix_direct_os_time" for issue in report.issues)
 
 
 def test_output_validator_requires_return() -> None:

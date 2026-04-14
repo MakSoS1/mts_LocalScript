@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes_agent import router as agent_router
 from app.api.routes_benchmark import router as benchmark_router
@@ -35,3 +38,11 @@ app.include_router(agent_router)
 app.include_router(health_router)
 app.include_router(models_router)
 app.include_router(benchmark_router)
+
+_static_dir = Path(__file__).resolve().parent / "static"
+app.mount("/ui", StaticFiles(directory=str(_static_dir), html=True), name="ui")
+
+
+@app.get("/")
+async def root():
+    return FileResponse(_static_dir / "index.html")

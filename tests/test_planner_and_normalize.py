@@ -34,10 +34,10 @@ def test_normalize_json_renames_single_key_to_preferred() -> None:
     assert payload == {"retryDelaySec": "lua{return 1}lua"}
 
 
-def test_task_validator_flags_bad_increment_pattern() -> None:
+def test_task_validator_hints_bad_increment_pattern() -> None:
     report = validate_task_specific("return wf.vars.try_count_n", "increment")
-    assert not report.ok
-    assert any(issue.code == "task_increment_missing_pattern" for issue in report.issues)
+    assert report.ok
+    assert any(issue.code == "hint_increment_missing_pattern" for issue in report.issues)
 
 
 def test_planner_prefers_raw_lua_when_explicit_wf_path_without_json_request() -> None:

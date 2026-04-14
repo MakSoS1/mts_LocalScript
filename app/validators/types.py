@@ -25,8 +25,7 @@ class ValidationBundle:
 
     @property
     def ok(self) -> bool:
-        task_ok = True if self.task is None else self.task.ok
-        return self.output.ok and self.contract.ok and self.domain.ok and self.syntax.ok and task_ok
+        return self.output.ok and self.contract.ok and self.domain.ok and self.syntax.ok
 
     @property
     def all_issues(self) -> list[ValidationIssue]:

@@ -413,10 +413,11 @@ def run_cases(
     variants: set[str] | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
+    base_settings = Settings()
     settings = Settings(
-        ollama_base_url="http://localhost:11434",
-        ollama_base_urls="http://localhost:11434",
-        ollama_timeout_seconds=90,
+        ollama_base_url=base_settings.ollama_base_url,
+        ollama_base_urls=base_settings.ollama_base_urls,
+        ollama_timeout_seconds=base_settings.ollama_timeout_seconds,
         required_demo_model=model,
         default_model=model,
         optional_benchmark_models="",

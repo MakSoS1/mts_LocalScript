@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -109,7 +110,17 @@ ORACLE_SPECS: dict[str, OracleSpec] = {
 
 
 def _lua_binary() -> str | None:
-    return shutil.which("lua5.4") or shutil.which("lua")
+    found = shutil.which("lua5.4") or shutil.which("lua54") or shutil.which("lua")
+    if found:
+        return found
+    for candidate in (
+        r"C:\Program Files (x86)\Lua\5.1\lua.exe",
+        r"C:\Program Files\Lua\5.4\lua.exe",
+        r"C:\Program Files\Lua\5.1\lua.exe",
+    ):
+        if Path(candidate).is_file():
+            return candidate
+    return None
 
 
 def _to_lua_literal(value: Any) -> str:
@@ -156,8 +167,11 @@ def _extract_wrappers(text: str) -> dict[str, str]:
 
 def _build_harness(chunk: str, fixture: dict[str, Any]) -> str:
     wf_literal = _to_lua_literal(fixture.get("wf", {}))
+    init_vars_literal = _to_lua_literal(fixture.get("wf", {}).get("initVariables", {}))
     return f"""
 local wf = {wf_literal}
+if not wf.vars then wf.vars = {{}} end
+if not wf.initVariables then wf.initVariables = {init_vars_literal} end
 local _utils = {{}}
 _utils.array = {{}}
 function _utils.array.new()
@@ -165,26 +179,13 @@ function _utils.array.new()
 end
 function _utils.array.markAsArray(t)
   if type(t) ~= "table" then
-    return false
+    return t
   end
-  local max_index = 0
-  for k, _ in pairs(t) do
-    if type(k) ~= "number" then
-      return false
-    end
-    if k <= 0 or math.floor(k) ~= k then
-      return false
-    end
-    if k > max_index then
-      max_index = k
-    end
-  end
-  for i = 1, max_index do
-    if t[i] == nil then
-      return false
-    end
-  end
-  return true
+  return t
+end
+function _utils.array.push(t, v)
+  table.insert(t, v)
+  return t
 end
 
 local function __is_array(v)
@@ -274,7 +275,7 @@ io.write(__encode(result))
 """.strip()
 
 
-def _execute_lua(lua_binary: str, chunk: str, fixture: dict[str, Any]) -> tuple[bool, Any]:
+def _execute_lua(lua_binary: str, chunk: str, fixture: dict[str, Any]) -> tuple[bool, Any, str]:
     script = _build_harness(chunk, fixture)
     try:
         proc = subprocess.run(
@@ -282,23 +283,24 @@ def _execute_lua(lua_binary: str, chunk: str, fixture: dict[str, Any]) -> tuple[
             input=script,
             text=True,
             capture_output=True,
-            timeout=3,
+            timeout=5,
             check=False,
         )
     except (subprocess.SubprocessError, OSError):
-        return False, None
+        return False, None, ""
 
     if proc.returncode != 0:
-        return False, None
+        stderr = (proc.stderr or "").strip()[:500]
+        return False, None, stderr
 
     output = (proc.stdout or "").strip()
     if not output:
-        return False, None
+        return False, None, "empty output"
 
     try:
-        return True, json.loads(output)
+        return True, json.loads(output), ""
     except json.JSONDecodeError:
-        return False, None
+        return False, None, f"json decode error: {output[:200]}"
 
 
 def _normalize(value: Any) -> Any:
@@ -309,6 +311,70 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return value
+
+
+def _pick_chunk(code: str, expected_json_key: str | None = None) -> str:
+    wrappers = _extract_wrappers(code)
+    if not wrappers:
+        return code
+    if expected_json_key and expected_json_key in wrappers:
+        return wrappers[expected_json_key]
+    return next(iter(wrappers.values()))
+
+
+def execute_candidate(
+    code: str,
+    fixture: dict[str, Any],
+    expected_json_key: str | None = None,
+) -> tuple[bool, Any, str]:
+    lua_binary = _lua_binary()
+    if lua_binary is None:
+        return False, None, "no lua binary found"
+
+    wrappers = _extract_wrappers(code)
+    if wrappers and isinstance(fixture.get("wf"), dict):
+        wf_data = fixture.get("wf", {})
+        has_vars = isinstance(wf_data.get("vars"), dict)
+        has_init = isinstance(wf_data.get("initVariables"), dict)
+
+        if has_init and len(wrappers) > 1:
+            actual: dict[str, Any] = {}
+            for key, chunk in wrappers.items():
+                ok, value, error = _execute_lua(lua_binary, chunk, fixture)
+                if not ok:
+                    return False, None, f"wrapper {key} failed: {error}"
+                actual[key] = value
+            return True, _normalize(actual), ""
+
+    chunk = _pick_chunk(code, expected_json_key)
+    ok, value, error = _execute_lua(lua_binary, chunk, fixture)
+    if ok:
+        value = _normalize(value)
+    return ok, value, error
+
+
+def runtime_oracle_pass(
+    code: str,
+    fixture: dict[str, Any],
+    expected_output: Any,
+    expected_json_key: str | None = None,
+) -> tuple[bool | None, str]:
+    lua_binary = _lua_binary()
+    if lua_binary is None:
+        return None, "no lua binary"
+
+    if not fixture or expected_output is None:
+        return None, "no fixture or expected"
+
+    ok, actual, error = execute_candidate(code, fixture, expected_json_key)
+    if not ok:
+        return False, f"execution failed: {error}"
+
+    expected = _normalize(expected_output)
+    if actual == expected:
+        return True, ""
+
+    return False, f"expected {json.dumps(expected, ensure_ascii=False)[:300]}, got {json.dumps(actual, ensure_ascii=False)[:300]}"
 
 
 def oracle_semantic_pass(task_type: str, code: str) -> bool | None:
@@ -330,26 +396,20 @@ def oracle_semantic_pass(task_type: str, code: str) -> bool | None:
                 chunk = wrappers.get(key)
                 if not chunk:
                     return False
-                ok, value = _execute_lua(lua_binary, chunk, spec.fixture)
+                ok, value, _ = _execute_lua(lua_binary, chunk, spec.fixture)
                 if not ok:
                     return False
                 actual[key] = value
             return _normalize(actual) == expected
 
-        ok, value = _execute_lua(lua_binary, code, spec.fixture)
+        ok, value, _ = _execute_lua(lua_binary, code, spec.fixture)
         if not ok:
             return False
         return _normalize(value) == expected
 
-    chunk_to_run = code
-    if wrappers:
-        preferred_key = spec.expected_json_key
-        if preferred_key and preferred_key in wrappers:
-            chunk_to_run = wrappers[preferred_key]
-        else:
-            chunk_to_run = next(iter(wrappers.values()))
+    chunk_to_run = _pick_chunk(code, spec.expected_json_key)
 
-    ok, value = _execute_lua(lua_binary, chunk_to_run, spec.fixture)
+    ok, value, _ = _execute_lua(lua_binary, chunk_to_run, spec.fixture)
     if not ok:
         return False
 

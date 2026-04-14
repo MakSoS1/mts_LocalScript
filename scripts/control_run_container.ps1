@@ -16,11 +16,31 @@ $env:OPTIONAL_BENCHMARK_MODELS = ""
 $env:STRICT_MODELS = ""
 $env:OLLAMA_NUM_BATCH = "1"
 $env:OLLAMA_NUM_PARALLEL = "1"
+$env:COMPOSE_BAKE = "false"
+$env:DOCKER_BUILDKIT = "0"
+$env:COMPOSE_DOCKER_CLI_BUILD = "0"
+$env:BASE_IMAGE = "localscript-python311-slim:local"
+
+docker image inspect $env:BASE_IMAGE *> $null
+if ($LASTEXITCODE -ne 0) {
+  docker image inspect python:3.11-slim *> $null
+  if ($LASTEXITCODE -ne 0) {
+    throw "Base image python:3.11-slim is not available locally. Pull it from an interactive Docker session first."
+  }
+  docker tag python:3.11-slim $env:BASE_IMAGE
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to tag python:3.11-slim as $($env:BASE_IMAGE)."
+  }
+}
 
 py scripts/judge_check.py --phase preflight --model localscript-qwen25coder7b
 if ($LASTEXITCODE -ne 0) { throw "judge preflight failed with exit code $LASTEXITCODE" }
 
-docker compose up --build -d
+docker build --build-arg "BASE_IMAGE=$($env:BASE_IMAGE)" -f docker/Dockerfile.api -t localscript-agent-api:latest .
+if ($LASTEXITCODE -ne 0) { throw "docker build failed with exit code $LASTEXITCODE" }
+
+docker compose up --no-build -d
+if ($LASTEXITCODE -ne 0) { throw "docker compose up failed with exit code $LASTEXITCODE" }
 
 if (-not (Test-Path "app\\reports")) {
   New-Item -ItemType Directory -Path "app\\reports" | Out-Null

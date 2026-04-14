@@ -1,8 +1,11 @@
 services:
   api:
+    image: localscript-agent-api:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.api
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-python:3.11-slim}
     container_name: localscript-agent-api
     env_file:
       - .env

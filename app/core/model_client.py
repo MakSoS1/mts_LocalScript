@@ -22,6 +22,20 @@ class OllamaClient:
     def __init__(self, settings: Settings):
         self.settings = settings
 
+    @staticmethod
+    def _model_aliases(model: str) -> set[str]:
+        normalized = model.strip()
+        if not normalized:
+            return set()
+        aliases = {normalized}
+        if ":" in normalized:
+            base, tag = normalized.rsplit(":", 1)
+            if tag == "latest":
+                aliases.add(base)
+        else:
+            aliases.add(f"{normalized}:latest")
+        return aliases
+
     def _urls(self, path: str) -> list[str]:
         return [f"{base.rstrip('/')}{path}" for base in self.settings.ollama_base_urls_list]
 
@@ -59,10 +73,13 @@ class OllamaClient:
 
     def ensure_model_allowed(self, model: str) -> None:
         normalized = model.strip()
-        if normalized not in self.settings.allowed_models_list:
-            raise OllamaError(
-                f"Model '{normalized}' is not in allow-list: {self.settings.allowed_models_list}"
-            )
+        requested = self._model_aliases(normalized)
+        for allowed_model in self.settings.allowed_models_list:
+            if requested & self._model_aliases(allowed_model):
+                return
+        raise OllamaError(
+            f"Model '{normalized}' is not in allow-list: {self.settings.allowed_models_list}"
+        )
 
     def list_models(self) -> list[str]:
         payload = self._get("/api/tags")
@@ -83,7 +100,7 @@ class OllamaClient:
         installed = set(self.list_models())
         missing: list[str] = []
         for model in self.settings.required_models_list:
-            if model not in installed:
+            if not (self._model_aliases(model) & installed):
                 missing.append(model)
         return missing
 
@@ -91,7 +108,7 @@ class OllamaClient:
         installed = set(self.list_models())
         missing: list[str] = []
         for model in self.settings.optional_benchmark_models_list:
-            if model not in installed:
+            if not (self._model_aliases(model) & installed):
                 missing.append(model)
         return missing
 

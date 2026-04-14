@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: dev test benchmark docker demo lint bootstrap clean control-run control-run-container judge-preflight judge-post eval-pack
+.PHONY: dev test benchmark docker demo lint bootstrap clean control-run control-run-container judge-preflight judge-post eval-pack api-up ui-up
 
 dev:
 	uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
@@ -40,3 +40,9 @@ judge-post:
 
 eval-pack:
 	python tools/eval_pack/run_eval_pack.py
+
+api-up:
+	./scripts/start_api.sh
+
+ui-up:
+	./scripts/start_ui.sh
