@@ -265,7 +265,7 @@ def plan_task(prompt: str) -> TaskPlan:
     if task_type == "generic":
         assumptions.append("Use minimal valid Lua and avoid non-domain helpers.")
 
-    needs_clarification = task_type == "generic" and confidence < 0.5 and not target_paths
+    needs_clarification = (task_type == "generic" and (confidence < 0.6 or not target_paths)) or (not target_paths and confidence < 0.7)
     output_keys = _extract_output_keys(prompt) or _default_output_keys(task_type)
 
     inferred_op = _infer_operation_type(prompt, task_type)

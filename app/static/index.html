@@ -258,19 +258,26 @@ async function sendMessage() {
 
   try {
     const lastAssistant = [...sess.messages].reverse().find(m => m.role === 'assistant');
-    const hasFeedback = !!lastAssistant;
+
+    const repairSignals = [
+      /\b(исправь|поменяй|замени|измени|добавь|убери|удали|fix|change|replace|modify|add|remove|update)\b/i,
+    ];
+    const looksLikeRepair = repairSignals.some(rx => rx.test(text)) && lastAssistant && sess.code;
+    const looksLikeNewTask = /\b(напиши|создай|сгенерируй|сделай|write|create|generate|build|найди|посчитай|вычисли|find|count|calculate)\b/i.test(text);
 
     let body, endpoint;
-    if (hasFeedback && sess.code) {
-      endpoint = '/agent/generate';
+    endpoint = '/agent/generate';
+    if (looksLikeRepair && !looksLikeNewTask) {
       body = {
         prompt: text,
         previous_code: sess.code,
         feedback: text,
       };
     } else {
-      endpoint = '/agent/generate';
       body = { prompt: text };
+      if (lastAssistant && sess.code && !looksLikeNewTask) {
+        body.assumption = lastAssistant.output_contract || null;
+      }
     }
 
     const model = document.getElementById('modelSelect').value;
@@ -359,9 +366,8 @@ async function regenerate(msgIdx) {
     const model = document.getElementById('modelSelect').value;
     if (model) body.model = model;
 
-    if (prevAssistant && prevAssistant.code) {
-      body.previous_code = prevAssistant.code;
-      body.feedback = userMsg.content;
+    if (prevAssistant && prevAssistant.output_contract) {
+      body.assumption = prevAssistant.output_contract;
     }
 
     const res = await fetch(API_BASE + '/agent/generate', {
@@ -504,14 +510,69 @@ function renderMeta(msg, idx) {
 
 async function assumeAndContinue(assumption, msgIdx) {
   const sess = getActive();
-  if (!sess) return;
+  if (!sess || generating) return;
 
   const lastUserMsg = [...sess.messages].reverse().find(m => m.role === 'user');
   if (!lastUserMsg) return;
 
-  const input = document.getElementById('msgInput');
-  input.value = `Принимаю допущение: ${assumption}`;
-  sendMessage();
+  generating = true;
+  document.getElementById('btnSend').disabled = true;
+
+  sess.messages.push({ role: 'user', content: 'Принимаю допущение: ' + assumption });
+  saveSessions();
+  renderChat();
+  showTyping();
+
+  try {
+    let body = { prompt: lastUserMsg.content, assumption: assumption };
+    const model = document.getElementById('modelSelect').value;
+    if (model) body.model = model;
+
+    const res = await fetch(API_BASE + '/agent/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Server error');
+    }
+
+    const data = await res.json();
+
+    const assistantMsg = {
+      role: 'assistant',
+      content: '',
+      status: data.status,
+      code: data.code || '',
+      question: data.question || null,
+      acceptable_assumptions: data.acceptable_assumptions || [],
+      assumptions: data.assumptions || [],
+      output_contract: data.output_contract || null,
+      used_repair: data.used_repair || false,
+    };
+
+    if (data.code) {
+      assistantMsg.content = buildAssistantText(data);
+      sess.code = data.code;
+    } else if (data.question) {
+      assistantMsg.content = data.question;
+    } else {
+      assistantMsg.content = 'Код не сгенерирован / No code generated';
+    }
+
+    sess.messages.push(assistantMsg);
+    saveSessions();
+    renderSidebar();
+    renderChat();
+  } catch (err) {
+    showToast(err.message);
+  } finally {
+    generating = false;
+    document.getElementById('btnSend').disabled = false;
+    removeTyping();
+  }
 }
 
 function copyCode(btn, msgIdx) {

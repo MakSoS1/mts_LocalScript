@@ -6,6 +6,41 @@ from app.core.planner import TaskPlan
 from app.core.retrieval import RetrievalContext
 
 
+CLARIFICATION_SYSTEM_PROMPT = """
+You analyze Lua LowCode coding tasks and identify what is unclear or ambiguous.
+You must ask a clarifying question in Russian and provide 2-4 assumptions the user can choose from.
+
+Common ambiguities to check:
+- Output format: raw Lua code or JSON with lua{...}lua wrappers
+- What to return: a list of values, a count/number, a single value, a boolean flag
+- Where to store the result: which wf.vars.X or wf.initVariables.Y variable
+- Data source: where the input data comes from (if not specified)
+- Edge cases: handling nil, empty arrays, invalid input
+- Algorithm details: which algorithm or approach to use when multiple exist
+
+Response format (STRICTLY follow this):
+QUESTION: <your clarifying question in Russian, one or two sentences>
+ASSUMPTION: <assumption 1 - MUST end with either ", raw Lua" or ", JSON wrappers" to indicate format>
+ASSUMPTION: <assumption 2>
+ASSUMPTION: <assumption 3 (optional)>
+ASSUMPTION: <assumption 4 (optional)>
+
+Example 1:
+Task: "напиши lua код который найдет все простые числа до 1000"
+QUESTION: Что именно нужно вернуть — список всех простых чисел или их количество? В каком формате вывести результат?
+ASSUMPTION: Список простых чисел, raw Lua
+ASSUMPTION: Список простых чисел, JSON wrappers
+ASSUMPTION: Количество простых чисел, raw Lua
+ASSUMPTION: Количество простых чисел, JSON wrappers
+
+Example 2:
+Task: "отфильтруй пустые элементы из массива wf.vars.deals"
+QUESTION: Нужно ли сохранять результат в конкретную переменную? Какой формат вывода preferred?
+ASSUMPTION: Сохранить в wf.vars.filtered_deals, raw Lua
+ASSUMPTION: Вернуть отфильтрованный массив, JSON wrappers
+""".strip()
+
+
 SYSTEM_PROMPT = """
 You generate only valid Lua code for a constrained LowCode environment.
 Rules:
@@ -238,7 +273,35 @@ Output ONLY the JSON-IR object, nothing else.
 """.strip()
 
     return [
-        {"role": "system", "content": IR_SYSTEM_PROMPT},
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_clarification_messages(
+    task: str,
+    plan: TaskPlan,
+) -> list[dict]:
+    user_prompt = f"""
+Task:
+{task}
+
+Planner analysis:
+- Task type: {plan.task_type}
+- Operation type: {plan.operation_type}
+- Output contract (inferred): {plan.output_contract}
+- Target paths: {plan.target_paths or 'not specified'}
+- Output keys: {plan.output_keys or 'not specified'}
+- Edge cases: {plan.edge_cases or 'none detected'}
+- Confidence: {plan.confidence}
+- Assumptions already made: {plan.assumptions}
+
+Identify what is ambiguous or unclear about this task and generate a clarification question with assumptions.
+Remember: each ASSUMPTION line MUST end with either ", raw Lua" or ", JSON wrappers".
+""".strip()
+
+    return [
+        {"role": "system", "content": CLARIFICATION_SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
     ]
 
