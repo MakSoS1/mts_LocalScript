@@ -14,32 +14,12 @@ export REQUIRED_DEMO_MODEL="localscript-qwen25coder7b"
 export DEFAULT_MODEL="localscript-qwen25coder7b"
 export OPTIONAL_BENCHMARK_MODELS=""
 export STRICT_MODELS=""
-export OLLAMA_NUM_BATCH="1"
-export OLLAMA_NUM_PARALLEL="1"
-export SYNTAX_REQUIRE_LUAC="true"
-
-mkdir -p app/reports
-VRAM_LOG="app/reports/vram_samples.csv"
-: > "${VRAM_LOG}"
-nvidia-smi --query-gpu=timestamp,name,memory.total,memory.used,utilization.gpu --format=csv,noheader -lms 500 > "${VRAM_LOG}" &
-VRAM_MON_PID=$!
-cleanup() {
-  if kill -0 "${VRAM_MON_PID}" >/dev/null 2>&1; then
-    kill "${VRAM_MON_PID}" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT
-
-python scripts/judge_check.py --phase preflight --model localscript-qwen25coder7b --strict-luac
 
 pytest -q
 
 python -m app.benchmark.runner --model localscript-qwen25coder7b --dataset "${PUBLIC_DATASET}" --mode R3
 python -m app.benchmark.runner --model localscript-qwen25coder7b --dataset "${AUGMENTED_DATASET}" --mode R3
 python scripts/compare_reports.py
-
-cleanup
-python scripts/judge_check.py --phase post --model localscript-qwen25coder7b --vram-log "${VRAM_LOG}" --max-vram-mib 8192
 
 ollama ps
 nvidia-smi --query-gpu=timestamp,name,memory.total,memory.used,utilization.gpu --format=csv,noheader

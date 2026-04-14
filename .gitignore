@@ -5,8 +5,5 @@ __pycache__/
 .env
 reports/
 app/reports/
-tools/eval_pack/reports/
-.tools/
-comparative_report.md
 *.log
 .DS_Store

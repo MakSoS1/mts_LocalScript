@@ -4,13 +4,7 @@ Set-Location (Join-Path $PSScriptRoot "..")
 
 if (Test-Path "app\\reports") {
   Get-ChildItem "app\\reports" -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -in @(".json", ".md", ".csv") } |
-    Remove-Item -Force
-}
-
-if (Test-Path "tools\\eval_pack\\reports") {
-  Get-ChildItem "tools\\eval_pack\\reports" -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -in @(".json", ".md", ".csv") } |
+    Where-Object { $_.Extension -in @(".json", ".md") } |
     Remove-Item -Force
 }
 

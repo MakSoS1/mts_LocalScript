@@ -1,25 +1,13 @@
-ARG BASE_IMAGE=python:3.11-slim
-FROM ${BASE_IMAGE}
+FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ARG STYLUA_VERSION=2.4.1
 
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        lua-check \
-        lua5.4 \
-        unzip \
+    && apt-get install -y --no-install-recommends lua5.4 \
     && rm -rf /var/lib/apt/lists/*
-
-RUN curl -fsSL "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VERSION}/stylua-linux-x86_64-musl.zip" -o /tmp/stylua.zip \
-    && unzip /tmp/stylua.zip -d /usr/local/bin \
-    && chmod +x /usr/local/bin/stylua \
-    && rm -f /tmp/stylua.zip
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt

@@ -8,7 +8,6 @@ from app.config import Settings
 from app.core.model_client import OllamaClient
 from app.core.planner import TaskPlan, plan_task
 from app.core.prompts import (
-    build_clarification_messages,
     build_feedback_repair_messages,
     build_generation_messages,
     build_ir_generation_messages,
@@ -80,46 +79,7 @@ class Orchestrator:
             return "generate_then_repair"
         return "direct_generation"
 
-    def _generate_clarification(self, prompt: str, plan: TaskPlan, model_name: str) -> tuple[str, list[str]]:
-        messages = build_clarification_messages(prompt, plan)
-        try:
-            response = self.client.chat(
-                model_name,
-                messages,
-                options=self._chat_options(temperature=0.2, top_p=0.9),
-            )
-            content = response.content.strip()
-        except (OllamaError, Exception):
-            LOGGER.info("clarification_llm_failed, falling back to hardcoded")
-            return self._fallback_clarification(plan)
-
-        question = ""
-        assumptions: list[str] = []
-        for line in content.splitlines():
-            line = line.strip()
-            if line.upper().startswith("QUESTION:"):
-                question = line[line.index(":") + 1:].strip()
-            elif line.upper().startswith("ASSUMPTION:"):
-                assumption_text = line[line.index(":") + 1:].strip()
-                if assumption_text:
-                    assumptions.append(assumption_text)
-
-        if not question:
-            question = self._fallback_clarification(plan)[0]
-        if not assumptions:
-            assumptions = self._fallback_clarification(plan)[1]
-
-        return question, assumptions
-
-    def _fallback_clarification(self, plan: TaskPlan) -> tuple[str, list[str]]:
-        if not plan.target_paths:
-            question = (
-                "Нужен формат ответа: raw Lua или JSON с lua{...}lua wrappers? "
-                "Также уточните целевой путь wf.vars/wf.initVariables, если он обязателен."
-            )
-        else:
-            question = "Нужен формат ответа: raw Lua или JSON с lua{...}lua wrappers?"
-
+    def clarification_assumptions(self, plan: TaskPlan) -> list[str]:
         assumptions: list[str] = []
         if plan.output_contract == "json_with_lua_wrappers":
             assumptions.append("json_with_lua_wrappers")
@@ -127,7 +87,15 @@ class Orchestrator:
         else:
             assumptions.append("raw_lua")
             assumptions.append("json_with_lua_wrappers")
-        return question, assumptions
+        return assumptions
+
+    def clarification_question(self, plan: TaskPlan) -> str:
+        if not plan.target_paths:
+            return (
+                "Нужен формат ответа: raw Lua или JSON с lua{...}lua wrappers? "
+                "Также уточните целевой путь wf.vars/wf.initVariables, если он обязателен."
+            )
+        return "Нужен формат ответа: raw Lua или JSON с lua{...}lua wrappers?"
 
     def resolve_benchmark_mode(self, mode: str | None) -> str:
         if not mode:
@@ -477,7 +445,6 @@ class Orchestrator:
         if plan.needs_clarification and request_mode == "clarify_then_generate" and not assumption:
             model_name = model or self.settings.default_model
             self.client.ensure_model_allowed(model_name)
-            question, assumptions = self._generate_clarification(prompt, plan, model_name)
             return AgentIterationResult(
                 status="clarification_required",
                 code=None,
@@ -486,25 +453,14 @@ class Orchestrator:
                 benchmark_mode=self.resolve_benchmark_mode(None),
                 used_repair=False,
                 validation=None,
-                question=question,
-                acceptable_assumptions=assumptions,
+                question=self.clarification_question(plan),
+                acceptable_assumptions=self.clarification_assumptions(plan),
                 assumptions=plan.assumptions,
                 output_contract=plan.output_contract,
             )
 
         prompt_for_generation = prompt
-        output_contract_override: str | None = None
-        if assumption:
-            lowered_a = assumption.lower()
-            if "raw lua" in lowered_a:
-                output_contract_override = "raw_lua"
-                prompt_for_generation = f"{prompt}\n\nПринятое допущение: {assumption}\nФормат: только lua (raw Lua, без JSON)"
-            elif "json" in lowered_a or "wrapper" in lowered_a:
-                output_contract_override = "json_with_lua_wrappers"
-                prompt_for_generation = f"{prompt}\n\nПринятое допущение: {assumption}\nФормат: JSON с lua{{...}}lua wrappers"
-            else:
-                prompt_for_generation = f"{prompt}\n\nПринятое допущение: {assumption}"
-        elif assumption in {"raw_lua", "json_with_lua_wrappers"}:
+        if assumption in {"raw_lua", "json_with_lua_wrappers"}:
             if assumption == "raw_lua":
                 prompt_for_generation = f"{prompt}\n\nAssumption: output must be raw Lua without JSON wrappers."
             else:
@@ -512,9 +468,6 @@ class Orchestrator:
 
         generation_result = self.generate(prompt_for_generation, model=model, mode=mode)
         status = "repaired" if generation_result.used_repair else "generated"
-        result_contract = generation_result.plan.output_contract
-        if output_contract_override:
-            result_contract = output_contract_override
         return AgentIterationResult(
             status=status,
             code=generation_result.code,
@@ -524,7 +477,7 @@ class Orchestrator:
             used_repair=generation_result.used_repair,
             validation=generation_result.validation,
             assumptions=generation_result.plan.assumptions,
-            output_contract=result_contract,
+            output_contract=generation_result.plan.output_contract,
         )
 
     def repair_with_feedback(

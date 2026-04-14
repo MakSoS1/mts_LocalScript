@@ -1,0 +1,278 @@
+specification {
+  element person {
+    style {
+      shape person
+    }
+  }
+  element system
+  element container
+  element component
+  element datastore {
+    style {
+      shape cylinder
+    }
+  }
+}
+
+model {
+  user = person 'Пользователь / Жюри' {
+    description 'Человек, который ставит задачу на генерацию Lua/LocalScript кода через веб-интерфейс или REST API. Жюри оценивает систему по результатам бенчмарка и качеству кода.'
+  }
+
+  system = system 'LocalScript Agent' {
+    description 'Локальный AI-агент для генерации Lua/LocalScript кода без внешних LLM API в runtime. Анализирует задачу, извлекает контекст из локальной базы знаний, генерирует код через Ollama, валидирует и чинит его до приемлемого качества.'
+
+    webGui = container 'Web GUI' {
+      description 'Браузерный SPA-интерфейс. Отдаётся как статика через /ui и /. Позволяет пользователю ввести задачу, выбрать режим и получить сгенерированный Lua-код.'
+    }
+
+    api = container 'FastAPI Server' {
+      description 'Python-приложение на FastAPI. Поднимает REST API, инициализирует OllamaClient, LocalRetriever и Orchestrator. Контейнер Docker (localscript-agent-api:latest), порт 8080. Роуты: /generate, /agent/generate, /benchmark, /health, /models.'
+
+      routeGenerate = component 'POST /generate' {
+        description 'Простой эндпоинт генерации. Принимает prompt, model, mode. Вызывает Orchestrator.generate. Возвращает код.'
+      }
+      routeAgent = component 'POST /agent/generate' {
+        description 'Агентный эндпоинт с диалогом. Поддерживает clarification, assumption, feedback/repair. Вызывает Orchestrator.generate_agent или repair_with_feedback.'
+      }
+      routeBenchmark = component 'POST /benchmark' {
+        description 'Запуск бенчмарка по JSONL-датасету. Вызывает BenchmarkRunner, возвращает сводку и пути к отчётам.'
+      }
+      routeHealth = component 'GET /health' {
+        description 'Проверка состояния: доступность Ollama, список активных моделей, missing-модели.'
+      }
+      routeModels = component 'GET /models' {
+        description 'Список установленных и доступных моделей в Ollama.'
+      }
+
+      orchestrator = component 'Orchestrator' {
+        description 'Центральный оркестратор. Классифицирует запрос (direct_generation / clarify_then_generate / generate_then_repair), управляет планом, генерацией кандидатов, выбором лучшего, repair-проходом. Конфигурируется через benchmark_mode (R0-R3).'
+      }
+      planner = component 'Task Planner' {
+        description 'Анализирует промпт: определяет тип задачи (last_element, increment, keep_only_fields, datum_time_to_iso, iso_to_unix, ensure_array, filter_non_empty, multi_field_json, generic), output_contract (raw_lua / json_with_lua_wrappers), целевые пути wf.vars.*, edge cases, acceptance criteria.'
+      }
+      retriever = component 'Local Retriever (BM25)' {
+        description 'Извлекает контекст из Knowledge Pack: правила, анти-паттерны, repair hints, примеры через BM25+keyword_boost. Возвращает RetrievalContext.'
+      }
+      promptBuilder = component 'Prompt Builder' {
+        description 'Собирает промпт-сообщения для Ollama: generation, ir_generation, ir_to_lua, repair, clarification, feedback_repair. Включает контекст, план, стратегию кандидата.'
+      }
+      ollamaClient = component 'Ollama Client' {
+        description 'HTTP-клиент к Ollama REST API. Отправляет /api/chat запросы с параметрами модели (temperature, num_ctx, num_predict). Проверяет allow-list моделей. Работает с несколькими endpoint-ами (fallback).'
+      }
+      irGenerator = component 'IR Generator' {
+        description 'Промежуточный шаг: генерирует IR (intermediate representation) JSON с ключами read_from, operation, return_as через Ollama. Если IR-генерация падает - fallback на прямую генерацию.'
+      }
+      codeNormalizer = component 'Code Normalizer' {
+        description 'Нормализует вывод модели: снимает markdown-заборы, приводит к нужному output_contract (raw_lua/json_with_lua_wrappers), канонизирует lua{...}lua обёртки.'
+      }
+
+      validatorPipeline = component 'Validator Pipeline' {
+        description 'Запускает 5 валидаторов последовательно: Output, Contract, Domain, Syntax, Task-specific. Формирует ValidationBundle с детальными Issue.'
+      }
+      outputValidator = component 'Output Validator' {
+        description 'Проверяет: нет пустого вывода, нет markdown-заборов, нет prose prefix (вот/конечно/sure), нет policy prose (as an AI), есть explicit return.'
+      }
+      contractValidator = component 'Contract Validator' {
+        description 'Проверяет соответствие формату: raw_lua (без JSON) или json_with_lua_wrappers (JSON с lua{...}lua). Валидирует корректность обёрток.'
+      }
+      domainValidator = component 'Domain Validator' {
+        description 'Проверяет: нет JsonPath, нет запрещённых wf-путей, нет запрещённых хелперов, только разрешённые _utils (array.new/markAsArray), нет require(), есть ожидаемые wf.vars/wf.initVariables.'
+      }
+      syntaxValidator = component 'Syntax Validator' {
+        description 'Проверяет синтаксис Lua через luac -p. Извлекает чанки из lua{...}lua обёрток, проверяет каждый.'
+      }
+      taskValidator = component 'Task Validator' {
+        description 'Проверяет паттерны конкретных задач: наличие нужных wf-путей и конструкций для каждого типа задачи. Даёт hints, не блокирует.'
+      }
+      qualityGate = component 'Lua Quality Gate' {
+        description 'Дополнительный контур качества: luac (синтаксис), luacheck (lint), stylua (форматирование). Формирует quality_gate_pass. Используется для ранжирования кандидатов.'
+      }
+
+      repair = component 'Repair Engine' {
+        description 'Repair-проход: если кандидат не прошёл quality gate, собирает structured failure report, строит repair-промпт с ошибками, запускает повторную генерацию. До N проходов (по умолчанию 1).'
+      }
+
+      benchmarkRunner = component 'Benchmark Runner' {
+        description 'Загружает JSONL-датасет, для каждого case вызывает Orchestrator.generate, считает latency, вызывает Scoring, собирает результаты.'
+      }
+      scoring = component 'Scoring Engine' {
+        description 'Оценивает результат: semantic_pass (через oracle или pattern matching), domain_pass, syntax_pass, format_pass, latency_score. Жёсткий gate: output+contract+domain+syntax, иначе score=0. Формула: 55% semantic + 10% domain + 15% syntax + 10% format + 10% latency.'
+      }
+      oracle = component 'Oracle (Runtime Execution)' {
+        description 'Выполняет сгенерированный Lua-код в изолированном harness с фикстурами wf.vars, сравнивает результат с ожидаемым. Проверяет все 8 типов задач.'
+      }
+      reportWriter = component 'Report Writer' {
+        description 'Записывает результаты бенчмарка: JSON (детализированный) и Markdown (читаемый) отчёты в app/reports/.'
+      }
+    }
+
+    kb = datastore 'Knowledge Pack (app/kb)' {
+      description 'Локальная база знаний: lowcode_rules.md (правила LowCode), anti_patterns.md (анти-паттерны), repair_hints.md (подсказки для ремонта), examples_public.jsonl + examples_synthetic.jsonl (примеры Lua-кода), openapi_summary.md (спецификация API домена). Всё хранится в файлах, без внешних БД.'
+    }
+
+    reports = datastore 'Benchmark Reports (app/reports)' {
+      description 'Директория для отчётов бенчмарка: JSON и Markdown файлы с результатами прогонов (score, pass rate, latency).'
+    }
+  }
+
+  ollamaRuntime = system 'Ollama Runtime' {
+    description 'Локальный сервис инференса LLM-моделей (Ollama). Работает на хост-машине, предоставляет REST API /api/chat для генерации текста. Модель по умолчанию: localscript-qwen25coder7b. Доступен через host.docker.internal:11434 или localhost:11434.'
+  }
+
+  user -> system.webGui 'Вводит задачу через браузер'
+  user -> system.api 'REST API запросы'
+  system.webGui -> system.api 'HTTP /generate, /agent/generate'
+  system.api -> system.kb 'Читает правила, анти-паттерны, примеры'
+  system.api -> ollamaRuntime 'Генерация/repair через /api/chat'
+  system.api -> system.reports 'Сохраняет отчёты бенчмарка'
+
+  system.api.routeGenerate -> system.api.orchestrator 'generate()'
+  system.api.routeAgent -> system.api.orchestrator 'generate_agent() / repair_with_feedback()'
+  system.api.routeBenchmark -> system.api.benchmarkRunner 'run_benchmark()'
+  system.api.routeHealth -> system.api.ollamaClient 'health(), running_models()'
+  system.api.routeModels -> system.api.ollamaClient 'list_models()'
+
+  system.api.orchestrator -> system.api.planner 'plan_task()'
+  system.api.orchestrator -> system.api.retriever 'retrieve_context()'
+  system.api.orchestrator -> system.api.promptBuilder 'build messages'
+  system.api.orchestrator -> system.api.ollamaClient 'chat()'
+  system.api.orchestrator -> system.api.irGenerator 'try_ir_generation()'
+  system.api.orchestrator -> system.api.codeNormalizer 'normalize_output_contract()'
+  system.api.orchestrator -> system.api.validatorPipeline 'run_all_validators()'
+  system.api.orchestrator -> system.api.qualityGate 'analyze_lua_tools()'
+  system.api.orchestrator -> system.api.repair 'repair pass'
+
+  system.api.validatorPipeline -> system.api.outputValidator 'validate_output()'
+  system.api.validatorPipeline -> system.api.contractValidator 'validate_contract()'
+  system.api.validatorPipeline -> system.api.domainValidator 'validate_domain()'
+  system.api.validatorPipeline -> system.api.syntaxValidator 'validate_syntax()'
+  system.api.validatorPipeline -> system.api.taskValidator 'validate_task_specific()'
+
+  system.api.repair -> system.api.promptBuilder 'build_repair_messages()'
+  system.api.repair -> system.api.ollamaClient 'chat for repair'
+
+  system.api.retriever -> system.kb 'BM25 retrieval + keyword boost'
+
+  system.api.benchmarkRunner -> system.api.orchestrator 'generate per case'
+  system.api.benchmarkRunner -> system.api.scoring 'score_case()'
+  system.api.benchmarkRunner -> system.api.reportWriter 'write reports'
+
+  system.api.scoring -> system.api.oracle 'runtime_oracle_pass()'
+
+  system.api.reportWriter -> system.reports 'JSON + Markdown'
+
+  system.api.ollamaClient -> ollamaRuntime 'POST /api/chat'
+
+  system.api.qualityGate -> system.kb 'repair_hints.md (через Retriever)'
+}
+
+views {
+  view index {
+    title 'LocalScript Agent — Architecture Overview'
+    include
+      user,
+      system,
+      ollamaRuntime
+  }
+
+  view systemContext of system {
+    title 'Level 1: System Context'
+    description 'Обзор системы на верхнем уровне: пользователь, LocalScript Agent и внешний Ollama Runtime. Без внешних LLM API в runtime — вся инференс-логика работает локально через Ollama.'
+    include
+      user,
+      system,
+      ollamaRuntime
+  }
+
+  view container of system {
+    title 'Level 2: Container Diagram'
+    description 'Развертывание системы по контейнерам: Web GUI (SPA), FastAPI Server (Docker, порт 8080), Knowledge Pack (локальные файлы), Benchmark Reports, Ollama Runtime (хост-сервис).'
+    include
+      user,
+      system.webGui,
+      system.api,
+      system.kb,
+      system.reports,
+      ollamaRuntime
+  }
+
+  view component of system.api {
+    title 'Level 3: Component Diagram — FastAPI Server'
+    description 'Внутренние компоненты FastAPI Server: API роуты, Orchestrator, Planner, Retriever, Prompt Builder, Ollama Client, IR Generator, Code Normalizer, Validator Pipeline (5 валидаторов), Quality Gate (luac/luacheck/stylua), Repair Engine, Benchmark Runner, Scoring Engine, Oracle, Report Writer.'
+    include
+      system.api.routeGenerate,
+      system.api.routeAgent,
+      system.api.routeBenchmark,
+      system.api.routeHealth,
+      system.api.routeModels,
+      system.api.orchestrator,
+      system.api.planner,
+      system.api.retriever,
+      system.api.promptBuilder,
+      system.api.ollamaClient,
+      system.api.irGenerator,
+      system.api.codeNormalizer,
+      system.api.validatorPipeline,
+      system.api.outputValidator,
+      system.api.contractValidator,
+      system.api.domainValidator,
+      system.api.syntaxValidator,
+      system.api.taskValidator,
+      system.api.qualityGate,
+      system.api.repair,
+      system.api.benchmarkRunner,
+      system.api.scoring,
+      system.api.oracle,
+      system.api.reportWriter,
+      system.kb,
+      system.reports,
+      ollamaRuntime
+  }
+
+  view generationFlow {
+    title 'Pipeline генерации Lua-кода'
+    description 'Последовательность шагов при генерации: классификация запроса -> планирование -> retrieval из KB -> генерация IR (опционально) -> генерация кандидатов через Ollama -> нормализация -> валидация -> quality gate -> repair (если нужно) -> результат.'
+    include
+      system.api.orchestrator,
+      system.api.planner,
+      system.api.retriever,
+      system.api.promptBuilder,
+      system.api.ollamaClient,
+      system.api.irGenerator,
+      system.api.codeNormalizer,
+      system.api.validatorPipeline,
+      system.api.qualityGate,
+      system.api.repair,
+      ollamaRuntime,
+      system.kb
+  }
+
+  view validationQuality {
+    title 'Контур валидации и качества'
+    description 'Валидация и качество: Validator Pipeline (5 валидаторов) + Quality Gate (luac/luacheck/stylua) + Repair Engine. Kill feature: не просто генерировать код, а локально отбирать и чинить его до приемлемого качества.'
+    include
+      system.api.validatorPipeline,
+      system.api.outputValidator,
+      system.api.contractValidator,
+      system.api.domainValidator,
+      system.api.syntaxValidator,
+      system.api.taskValidator,
+      system.api.qualityGate,
+      system.api.repair,
+      system.api.orchestrator
+  }
+
+  view benchmarkFlow {
+    title 'Benchmark контур'
+    description 'Прогон бенчмарка: загрузка датасета -> генерация по каждому кейсу -> scoring (55% semantic + 10% domain + 15% syntax + 10% format + 10% latency) -> oracle runtime execution -> отчёты.'
+    include
+      system.api.benchmarkRunner,
+      system.api.orchestrator,
+      system.api.scoring,
+      system.api.oracle,
+      system.api.reportWriter,
+      system.reports,
+      ollamaRuntime
+  }
+}
