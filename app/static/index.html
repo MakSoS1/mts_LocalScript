@@ -16,7 +16,7 @@
   --accent:#007acc;--accent-hover:#1c97ea;--accent-dim:#1a4a73;
   --border:#3e3e42;--border-light:#4f4f54;
   --user-bubble:#264f78;--assistant-bubble:#2d2d30;
-  --success:#4ec9b0;--error:#f44747;--warning:#dcdcaa;
+  --success:#4ec9b0;--error:#f44747;--warning:#dcdcaa;--info:#569cd6;
   --code-bg:#1e1e1e;--scrollbar:#424242;--scrollbar-hover:#555;
 }
 html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary);overflow:hidden}
@@ -70,7 +70,7 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
 .msg-row.assistant{justify-content:flex-start}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 
-.msg-bubble{max-width:72%;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.6;position:relative;word-break:break-word}
+.msg-bubble{max-width:78%;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.6;position:relative;word-break:break-word}
 .msg-row.user .msg-bubble{background:var(--user-bubble);border-bottom-right-radius:4px;color:#e0e0e0}
 .msg-row.assistant .msg-bubble{background:var(--assistant-bubble);border:1px solid var(--border);border-bottom-left-radius:4px}
 
@@ -79,6 +79,7 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
 .badge.pass{background:rgba(78,201,176,.15);color:var(--success)}
 .badge.fail{background:rgba(244,71,71,.15);color:var(--error)}
 .badge.warn{background:rgba(220,220,170,.15);color:var(--warning)}
+.badge.info{background:rgba(86,156,214,.15);color:var(--info)}
 .badge.generated{background:rgba(0,122,204,.15);color:var(--accent-hover)}
 .badge.repaired{background:rgba(220,220,170,.15);color:var(--warning)}
 .badge.clarification_required{background:rgba(244,71,71,.15);color:var(--error)}
@@ -103,8 +104,37 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
 .question-block{margin:8px 0;padding:10px 14px;border-radius:6px;background:rgba(0,122,204,.08);border:1px solid var(--accent-dim);font-size:13px;color:var(--accent-hover)}
 .question-block .label{font-weight:600;color:var(--accent);margin-bottom:4px;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
 
-.oracle-block{margin:8px 0;padding:8px 12px;border-radius:6px;background:var(--bg-tertiary);border:1px solid var(--border);font-size:12px}
-.oracle-block .label{font-weight:600;color:var(--text-secondary);margin-bottom:4px;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.pipeline-panel{margin:8px 0;padding:10px 14px;border-radius:8px;background:var(--bg-tertiary);border:1px solid var(--border)}
+.pipeline-panel .panel-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--info);margin-bottom:8px}
+.pipeline-steps{display:flex;flex-wrap:wrap;gap:6px}
+.pipeline-step{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;font-size:11px;background:var(--bg-hover);border:1px solid var(--border)}
+.pipeline-step .step-icon{font-size:12px}
+.pipeline-step .step-name{color:var(--text-secondary);font-weight:500}
+.pipeline-step .step-detail{color:var(--text-muted);font-size:10px}
+.pipeline-step.done{border-color:var(--accent-dim)}
+.pipeline-step.done .step-icon{color:var(--success)}
+.pipeline-step.warn{border-color:rgba(220,220,170,.3)}
+.pipeline-step.warn .step-icon{color:var(--warning)}
+
+.validation-panel{margin:8px 0;padding:10px 14px;border-radius:8px;background:var(--bg-tertiary);border:1px solid var(--border)}
+.validation-panel .panel-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--success);margin-bottom:8px}
+.validation-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.v-item{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:4px;font-size:11px;background:var(--bg-hover)}
+.v-item .v-icon{font-size:13px}
+.v-item .v-name{color:var(--text-secondary);flex:1}
+.v-item .v-status{font-weight:600}
+.v-item.pass .v-icon,.v-item.pass .v-status{color:var(--success)}
+.v-item.fail .v-icon,.v-item.fail .v-status{color:var(--error)}
+
+.resource-bar{margin:8px 0;padding:8px 12px;border-radius:6px;background:var(--bg-tertiary);border:1px solid var(--border);font-size:11px}
+.resource-bar .rb-title{font-weight:600;color:var(--text-secondary);margin-bottom:4px;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+.resource-bar .rb-row{display:flex;align-items:center;gap:8px;margin:3px 0}
+.resource-bar .rb-label{color:var(--text-muted);min-width:70px}
+.resource-bar .rb-track{flex:1;height:6px;background:var(--bg-primary);border-radius:3px;overflow:hidden}
+.resource-bar .rb-fill{height:100%;border-radius:3px;transition:width .5s ease}
+.resource-bar .rb-fill.gpu{background:var(--info)}
+.resource-bar .rb-fill.ram{background:var(--accent)}
+.resource-bar .rb-value{color:var(--text-secondary);min-width:60px;text-align:right}
 
 .input-area{padding:12px 20px 16px;border-top:1px solid var(--border);background:var(--bg-secondary)}
 .input-wrap{display:flex;align-items:flex-end;gap:8px;max-width:800px;margin:0 auto;background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:6px 8px 6px 16px;transition:border-color .15s}
@@ -127,10 +157,11 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
 @media(max-width:768px){
   .sidebar{position:fixed;left:0;top:0;height:100%;box-shadow:4px 0 16px rgba(0,0,0,.4)}
   .sidebar.collapsed{transform:translateX(-260px)}
-  .msg-bubble{max-width:88%}
+  .msg-bubble{max-width:92%}
   .input-area{padding:8px 12px 12px}
   .messages{padding:12px 0}
   .msg-row{padding:4px 12px}
+  .validation-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -140,7 +171,7 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
     <div class="sidebar-header">
       <div class="logo">LocalScript <span>Agent</span></div>
     </div>
-    <button class="btn-new" onclick="newSession()" title="Новый чат / New Chat">
+    <button class="btn-new" onclick="newSession()" title="Новый чат">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v6H1v2h7v7h2V9h7V7H9V1z"/></svg>
       Новый чат
     </button>
@@ -148,6 +179,7 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
     <div class="sidebar-footer" id="sidebarFooter">
       <span class="health-dot" id="healthDot"></span>
       <span id="healthText">Загрузка…</span>
+      <div id="resourceWidget" style="margin-top:6px"></div>
     </div>
   </aside>
 
@@ -155,21 +187,21 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
     <div class="topbar">
       <button class="btn-toggle-sidebar" onclick="toggleSidebar()" title="Toggle sidebar">☰</button>
       <div class="current-title" id="currentTitle">LocalScript Agent</div>
-      <select class="model-select" id="modelSelect" title="Модель / Model"><option value="">Default model</option></select>
+      <select class="model-select" id="modelSelect" title="Модель"><option value="">Default model</option></select>
     </div>
 
     <div class="messages" id="messagesContainer">
       <div class="messages-empty" id="emptyState">
         <div class="hero-icon">⟨/⟩</div>
         <h2>LocalScript Agent</h2>
-        <p>Генерация Lua-скриптов на основе описания задачи.<br>Опишите задачу — агент сгенерирует, проверит и при необходимости починит код.</p>
+        <p>Локальный AI-агент для генерации Lua/LocalScript.<br>Опишите задачу — агент спланирует, найдёт примеры в базе знаний, сгенерирует код, провалидирует и при необходимости починит.</p>
       </div>
     </div>
 
     <div class="input-area">
       <div class="input-wrap">
         <textarea id="msgInput" rows="1" placeholder="Опишите задачу / Describe the task…" onkeydown="handleKey(event)"></textarea>
-        <button class="btn-send" id="btnSend" onclick="sendMessage()" title="Отправить / Send">
+        <button class="btn-send" id="btnSend" onclick="sendMessage()" title="Отправить">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
         </button>
       </div>
@@ -186,418 +218,310 @@ let sessions = loadSessions();
 let activeId = localStorage.getItem(LS_ACTIVE) || null;
 let generating = false;
 
-function loadSessions() {
-  try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch { return {}; }
-}
-function saveSessions() { localStorage.setItem(LS_KEY, JSON.stringify(sessions)); }
-function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function loadSessions(){try{return JSON.parse(localStorage.getItem(LS_KEY))||{}}catch{return{}}}
+function saveSessions(){localStorage.setItem(LS_KEY,JSON.stringify(sessions))}
+function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function getActive(){return activeId?sessions[activeId]:null}
 
-function getActive() { return activeId ? sessions[activeId] : null; }
-
-function newSession() {
-  const id = genId();
-  sessions[id] = { id, title: 'Новый чат', messages: [], createdAt: Date.now(), code: '' };
-  activeId = id;
-  localStorage.setItem(LS_ACTIVE, id);
-  saveSessions();
-  renderSidebar();
-  renderChat();
+function newSession(){
+  const id=genId();
+  sessions[id]={id,title:'Новый чат',messages:[],createdAt:Date.now(),code:''};
+  activeId=id;
+  localStorage.setItem(LS_ACTIVE,id);
+  saveSessions();renderSidebar();renderChat();
   document.getElementById('msgInput').focus();
 }
+function switchSession(id){activeId=id;localStorage.setItem(LS_ACTIVE,id);renderSidebar();renderChat()}
+function deleteSession(id,e){e.stopPropagation();delete sessions[id];if(activeId===id){const k=Object.keys(sessions);activeId=k.length?k[k.length-1]:null;localStorage.setItem(LS_ACTIVE,activeId||'')}saveSessions();renderSidebar();renderChat()}
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('collapsed')}
+function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,120)+'px'}
+function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}}
 
-function switchSession(id) {
-  activeId = id;
-  localStorage.setItem(LS_ACTIVE, id);
-  renderSidebar();
-  renderChat();
-}
+async function sendMessage(){
+  const input=document.getElementById('msgInput');
+  const text=input.value.trim();
+  if(!text||generating)return;
+  if(!activeId)newSession();
+  const sess=getActive();if(!sess)return;
 
-function deleteSession(id, e) {
-  e.stopPropagation();
-  delete sessions[id];
-  if (activeId === id) {
-    const keys = Object.keys(sessions);
-    activeId = keys.length ? keys[keys.length - 1] : null;
-    localStorage.setItem(LS_ACTIVE, activeId || '');
-  }
-  saveSessions();
-  renderSidebar();
-  renderChat();
-}
-
-function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('collapsed');
-}
-
-function autoResize(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-}
-
-function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-}
-
-async function sendMessage() {
-  const input = document.getElementById('msgInput');
-  const text = input.value.trim();
-  if (!text || generating) return;
-
-  if (!activeId) newSession();
-  const sess = getActive();
-  if (!sess) return;
-
-  sess.messages.push({ role: 'user', content: text });
-  input.value = '';
-  autoResize(input);
+  sess.messages.push({role:'user',content:text});
+  input.value='';autoResize(input);
   renderChat();
 
-  generating = true;
-  document.getElementById('btnSend').disabled = true;
+  generating=true;
+  document.getElementById('btnSend').disabled=true;
   showTyping();
 
-  try {
-    const lastAssistant = [...sess.messages].reverse().find(m => m.role === 'assistant');
-    const hasFeedback = !!lastAssistant;
-
-    let body, endpoint;
-    if (hasFeedback && sess.code) {
-      endpoint = '/agent/generate';
-      body = {
-        prompt: text,
-        previous_code: sess.code,
-        feedback: text,
-      };
-    } else {
-      endpoint = '/agent/generate';
-      body = { prompt: text };
+  try{
+    const lastAssistant=[...sess.messages].reverse().find(m=>m.role==='assistant');
+    let body,endpoint;
+    if(lastAssistant&&sess.code){
+      endpoint='/agent/generate';
+      body={prompt:text,previous_code:sess.code,feedback:text};
+    }else{
+      endpoint='/agent/generate';
+      body={prompt:text};
     }
+    const model=document.getElementById('modelSelect').value;
+    if(model)body.model=model;
 
-    const model = document.getElementById('modelSelect').value;
-    if (model) body.model = model;
+    const res=await fetch(API_BASE+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!res.ok){const err=await res.json().catch(()=>({detail:res.statusText}));throw new Error(err.detail||'Server error')}
+    const data=await res.json();
 
-    const res = await fetch(API_BASE + endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    if(sess.messages.length===1)sess.title=text.slice(0,40)+(text.length>40?'…':'');
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || 'Server error');
-    }
+    const assistantMsg={role:'assistant',content:'',status:data.status,code:data.code||'',question:data.question||null,acceptable_assumptions:data.acceptable_assumptions||[],assumptions:data.assumptions||[],output_contract:data.output_contract||null,used_repair:data.used_repair||false,request_mode:data.request_mode||null,benchmark_mode:data.benchmark_mode||null,task_type:data.task_type||null,confidence:data.confidence||null,needs_clarification:data.needs_clarification||null,plan:data.plan||null,validation:data.validation||null,quality_gate:data.quality_gate||null,pipeline_steps:data.pipeline_steps||[],latency_ms:data.latency_ms||null,candidates_generated:data.candidates_generated||null,ir_used:data.ir_used||null,kb_rules_used:data.kb_rules_used||null,kb_examples_used:data.kb_examples_used||null,kb_examples_count:data.kb_examples_count||null,repair_iterations:data.repair_iterations||null,repair_issues:data.repair_issues||null};
 
-    const data = await res.json();
-
-    if (sess.messages.length === 1) {
-      sess.title = text.slice(0, 40) + (text.length > 40 ? '…' : '');
-    }
-
-    const assistantMsg = {
-      role: 'assistant',
-      content: '',
-      status: data.status,
-      code: data.code || '',
-      question: data.question || null,
-      acceptable_assumptions: data.acceptable_assumptions || [],
-      assumptions: data.assumptions || [],
-      output_contract: data.output_contract || null,
-      used_repair: data.used_repair || false,
-    };
-
-    if (data.code) {
-      assistantMsg.content = buildAssistantText(data);
-      sess.code = data.code;
-    } else if (data.question) {
-      assistantMsg.content = data.question;
-    } else {
-      assistantMsg.content = 'Код не сгенерирован / No code generated';
-    }
+    if(data.code){assistantMsg.content='Сгенерированный Lua-скрипт:';sess.code=data.code}
+    else if(data.question){assistantMsg.content=data.question}
+    else{assistantMsg.content='Код не сгенерирован'}
 
     sess.messages.push(assistantMsg);
-    saveSessions();
-    renderSidebar();
-    renderChat();
-  } catch (err) {
-    showToast(err.message);
-  } finally {
-    generating = false;
-    document.getElementById('btnSend').disabled = false;
-    removeTyping();
-  }
+    saveSessions();renderSidebar();renderChat();
+  }catch(err){showToast(err.message)}
+  finally{generating=false;document.getElementById('btnSend').disabled=false;removeTyping()}
 }
 
-function buildAssistantText(data) {
-  let parts = [];
-  if (data.status === 'clarification_required' && data.question) {
-    parts.push(data.question);
-  } else if (data.code) {
-    parts.push('Сгенерированный Lua-скрипт:\n```lua\n' + data.code + '\n```');
-  }
-  return parts.join('\n\n');
+async function regenerate(msgIdx){
+  const sess=getActive();if(!sess||generating)return;
+  const userMsg=sess.messages.slice(0,msgIdx).reverse().find(m=>m.role==='user');
+  if(!userMsg)return;
+  sess.messages=sess.messages.slice(0,msgIdx);sess.code='';saveSessions();renderChat();
+  generating=true;document.getElementById('btnSend').disabled=true;showTyping();
+  try{
+    let body={prompt:userMsg.content};
+    const model=document.getElementById('modelSelect').value;if(model)body.model=model;
+    const res=await fetch(API_BASE+'/agent/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!res.ok){const err=await res.json().catch(()=>({detail:res.statusText}));throw new Error(err.detail||'Server error')}
+    const data=await res.json();
+    const assistantMsg={role:'assistant',content:'',status:data.status,code:data.code||'',question:data.question||null,acceptable_assumptions:data.acceptable_assumptions||[],assumptions:data.assumptions||[],output_contract:data.output_contract||null,used_repair:data.used_repair||false,request_mode:data.request_mode||null,benchmark_mode:data.benchmark_mode||null,task_type:data.task_type||null,confidence:data.confidence||null,plan:data.plan||null,validation:data.validation||null,quality_gate:data.quality_gate||null,pipeline_steps:data.pipeline_steps||[],latency_ms:data.latency_ms||null,candidates_generated:data.candidates_generated||null,ir_used:data.ir_used||null,kb_rules_used:data.kb_rules_used||null,kb_examples_used:data.kb_examples_used||null,repair_iterations:data.repair_iterations||null,repair_issues:data.repair_issues||null};
+    if(data.code){assistantMsg.content='Сгенерированный Lua-скрипт:';sess.code=data.code}
+    else if(data.question){assistantMsg.content=data.question}
+    else{assistantMsg.content='Код не сгенерирован'}
+    sess.messages.push(assistantMsg);saveSessions();renderSidebar();renderChat();
+  }catch(err){showToast(err.message)}
+  finally{generating=false;document.getElementById('btnSend').disabled=false;removeTyping()}
 }
 
-async function regenerate(msgIdx) {
-  const sess = getActive();
-  if (!sess || generating) return;
-
-  const userMsg = sess.messages.slice(0, msgIdx).reverse().find(m => m.role === 'user');
-  if (!userMsg) return;
-
-  sess.messages = sess.messages.slice(0, msgIdx);
-  sess.code = '';
-  saveSessions();
-  renderChat();
-
-  generating = true;
-  document.getElementById('btnSend').disabled = true;
-  showTyping();
-
-  try {
-    const prevAssistant = sess.messages.slice(0, -1).reverse().find(m => m.role === 'assistant');
-    let body = { prompt: userMsg.content };
-    const model = document.getElementById('modelSelect').value;
-    if (model) body.model = model;
-
-    if (prevAssistant && prevAssistant.code) {
-      body.previous_code = prevAssistant.code;
-      body.feedback = userMsg.content;
-    }
-
-    const res = await fetch(API_BASE + '/agent/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || 'Server error');
-    }
-
-    const data = await res.json();
-    const assistantMsg = {
-      role: 'assistant',
-      content: '',
-      status: data.status,
-      code: data.code || '',
-      question: data.question || null,
-      acceptable_assumptions: data.acceptable_assumptions || [],
-      assumptions: data.assumptions || [],
-      output_contract: data.output_contract || null,
-      used_repair: data.used_repair || false,
-    };
-
-    if (data.code) {
-      assistantMsg.content = buildAssistantText(data);
-      sess.code = data.code;
-    } else if (data.question) {
-      assistantMsg.content = data.question;
-    } else {
-      assistantMsg.content = 'Код не сгенерирован / No code generated';
-    }
-
-    sess.messages.push(assistantMsg);
-    saveSessions();
-    renderSidebar();
-    renderChat();
-  } catch (err) {
-    showToast(err.message);
-  } finally {
-    generating = false;
-    document.getElementById('btnSend').disabled = false;
-    removeTyping();
-  }
-}
-
-function renderSidebar() {
-  const list = document.getElementById('sessionList');
-  const sorted = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt);
-  list.innerHTML = sorted.map(s => `
-    <div class="session-item ${s.id === activeId ? 'active' : ''}" onclick="switchSession('${s.id}')">
-      <span class="session-title">${escHtml(s.title)}</span>
-      <button class="btn-del" onclick="deleteSession('${s.id}',event)" title="Удалить / Delete">×</button>
-    </div>
-  `).join('');
-}
-
-function renderChat() {
-  const container = document.getElementById('messagesContainer');
-  const sess = getActive();
-  const title = document.getElementById('currentTitle');
-
-  if (!sess || sess.messages.length === 0) {
-    container.innerHTML = `<div class="messages-empty" id="emptyState">
-      <div class="hero-icon">⟨/⟩</div>
-      <h2>LocalScript Agent</h2>
-      <p>Генерация Lua-скриптов на основе описания задачи.<br>Опишите задачу — агент сгенерирует, проверит и при необходимости починит код.</p>
-    </div>`;
-    title.textContent = 'LocalScript Agent';
-    return;
-  }
-
-  title.textContent = sess.title;
-
-  container.innerHTML = sess.messages.map((msg, idx) => {
-    if (msg.role === 'user') {
-      return `<div class="msg-row user"><div class="msg-bubble">${escHtml(msg.content)}</div></div>`;
-    }
-    return `<div class="msg-row assistant"><div class="msg-bubble">
-      ${renderAssistantContent(msg, idx)}
-      ${renderMeta(msg, idx)}
-    </div></div>`;
-  }).join('');
-
-  container.querySelectorAll('pre code').forEach(block => {
-    hljs.highlightElement(block);
-  });
-
-  container.scrollTop = container.scrollHeight;
-}
-
-function renderAssistantContent(msg, idx) {
-  let html = '';
-
-  if (msg.question && (!msg.code || msg.status === 'clarification_required')) {
-    html += `<div class="question-block"><div class="label">Уточнение / Clarification</div>${escHtml(msg.question)}</div>`;
-  }
-
-  if (msg.acceptable_assumptions && msg.acceptable_assumptions.length) {
-    html += `<div class="assumptions-block"><div class="label">Допущения / Assumptions</div>`;
-    msg.acceptable_assumptions.forEach(a => {
-      html += `<div class="assumption-item" onclick="assumeAndContinue('${escAttr(a)}',${idx})">${escHtml(a)}</div>`;
-    });
-    html += `</div>`;
-  }
-
-  if (msg.code) {
-    html += `<div class="code-block">
-      <div class="code-header"><span class="lang-label">lua</span><button class="btn-copy" onclick="copyCode(this,${idx})" title="Копировать / Copy">📋 Copy</button></div>
-      <pre><code class="language-lua">${escHtml(msg.code)}</code></pre>
-    </div>`;
-  }
-
-  if (msg.status && msg.code) {
-    const statusMap = {
-      generated: { label: 'Сгенерирован / Generated', cls: 'generated' },
-      repaired: { label: 'Отремонтирован / Repaired', cls: 'repaired' },
-      clarification_required: { label: 'Требуется уточнение / Clarification', cls: 'clarification_required' },
-    };
-    const s = statusMap[msg.status] || { label: msg.status, cls: 'warn' };
-    html += `<span class="badge ${s.cls}">${s.label}</span>`;
-    if (msg.used_repair) {
-      html += ` <span class="badge warn">Repair used</span>`;
-    }
-  }
-
-  return html;
-}
-
-function renderMeta(msg, idx) {
-  let html = '<div class="msg-meta">';
-  if (msg.status) {
-    html += `<button class="btn-regen" onclick="regenerate(${idx})" title="Перегенерировать / Regenerate">↻ Regenerate</button>`;
-  }
-  html += '</div>';
-  return html;
-}
-
-async function assumeAndContinue(assumption, msgIdx) {
-  const sess = getActive();
-  if (!sess) return;
-
-  const lastUserMsg = [...sess.messages].reverse().find(m => m.role === 'user');
-  if (!lastUserMsg) return;
-
-  const input = document.getElementById('msgInput');
-  input.value = `Принимаю допущение: ${assumption}`;
+async function assumeAndContinue(assumption,msgIdx){
+  const sess=getActive();if(!sess)return;
+  const input=document.getElementById('msgInput');
+  input.value=`Принимаю допущение: ${assumption}`;
   sendMessage();
 }
 
-function copyCode(btn, msgIdx) {
-  const sess = getActive();
-  if (!sess) return;
-  const msg = sess.messages[msgIdx];
-  if (!msg || !msg.code) return;
-  navigator.clipboard.writeText(msg.code).then(() => {
-    btn.textContent = '✓ Copied';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = '📋 Copy'; btn.classList.remove('copied'); }, 2000);
-  });
+function renderSidebar(){
+  const list=document.getElementById('sessionList');
+  const sorted=Object.values(sessions).sort((a,b)=>b.createdAt-a.createdAt);
+  list.innerHTML=sorted.map(s=>`<div class="session-item ${s.id===activeId?'active':''}" onclick="switchSession('${s.id}')"><span class="session-title">${escHtml(s.title)}</span><button class="btn-del" onclick="deleteSession('${s.id}',event)" title="Удалить">×</button></div>`).join('');
 }
 
-function showTyping() {
-  const container = document.getElementById('messagesContainer');
-  const el = document.createElement('div');
-  el.className = 'msg-row assistant';
-  el.id = 'typingRow';
-  el.innerHTML = `<div class="msg-bubble"><div class="typing-indicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>`;
-  container.appendChild(el);
-  container.scrollTop = container.scrollHeight;
-}
-
-function removeTyping() {
-  const el = document.getElementById('typingRow');
-  if (el) el.remove();
-}
-
-function showToast(msg) {
-  const el = document.createElement('div');
-  el.className = 'error-toast';
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 4000);
-}
-
-function escHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-function escAttr(s) {
-  return s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-}
-
-async function checkHealth() {
-  const dot = document.getElementById('healthDot');
-  const txt = document.getElementById('healthText');
-  try {
-    const res = await fetch(API_BASE + '/health');
-    const data = await res.json();
-    dot.className = 'health-dot ' + (data.status === 'ok' ? 'ok' : 'degraded');
-    txt.textContent = `${data.status.toUpperCase()} · ${data.default_model}`;
-  } catch {
-    dot.className = 'health-dot error';
-    txt.textContent = 'OFFLINE';
+function renderChat(){
+  const container=document.getElementById('messagesContainer');
+  const sess=getActive();const title=document.getElementById('currentTitle');
+  if(!sess||sess.messages.length===0){
+    container.innerHTML=`<div class="messages-empty"><div class="hero-icon">⟨/⟩</div><h2>LocalScript Agent</h2><p>Локальный AI-агент для генерации Lua/LocalScript.<br>Опишите задачу — агент спланирует, найдёт примеры, сгенерирует, провалидирует и починит код.</p></div>`;
+    title.textContent='LocalScript Agent';return;
   }
+  title.textContent=sess.title;
+  container.innerHTML=sess.messages.map((msg,idx)=>{
+    if(msg.role==='user')return`<div class="msg-row user"><div class="msg-bubble">${escHtml(msg.content)}</div></div>`;
+    return`<div class="msg-row assistant"><div class="msg-bubble">${renderAssistantContent(msg,idx)}${renderMeta(msg,idx)}</div></div>`;
+  }).join('');
+  container.querySelectorAll('pre code').forEach(block=>{hljs.highlightElement(block)});
+  container.scrollTop=container.scrollHeight;
 }
 
-async function loadModels() {
-  const sel = document.getElementById('modelSelect');
-  try {
-    const res = await fetch(API_BASE + '/models');
-    const data = await res.json();
-    const models = data.allowed_models || data.installed_models || [];
-    sel.innerHTML = '<option value="">Default: ' + (data.required_demo_model || '—') + '</option>';
-    models.forEach(m => {
-      const installed = (data.installed_models || []).includes(m);
-      const opt = document.createElement('option');
-      opt.value = m;
-      opt.textContent = m + (installed ? '' : ' ⚠');
-      sel.appendChild(opt);
+function renderAssistantContent(msg,idx){
+  let html='';
+
+  // Pipeline steps
+  if(msg.pipeline_steps&&msg.pipeline_steps.length){
+    html+=`<div class="pipeline-panel"><div class="panel-title">Pipeline генерации</div><div class="pipeline-steps">`;
+    msg.pipeline_steps.forEach(s=>{
+      const icon=s.status==='done'?'✓':'⋯';
+      const cls=s.status==='done'?'done':'';
+      const detail=s.detail?` — ${escHtml(s.detail)}`:'';
+      const dur=s.duration_ms?` (${Math.round(s.duration_ms)}ms)`:'';
+      html+=`<div class="pipeline-step ${cls}"><span class="step-icon">${icon}</span><span class="step-name">${escHtml(s.name)}</span>${detail||dur?`<span class="step-detail">${escHtml(detail)}${dur}</span>`:''}</div>`;
     });
-  } catch {}
+    html+=`</div></div>`;
+  }
+
+  // Validation panel
+  if(msg.validation){
+    const v=msg.validation;
+    const items=[
+      {name:'Output',data:v.output},
+      {name:'Contract',data:v.contract},
+      {name:'Domain',data:v.domain},
+      {name:'Syntax',data:v.syntax},
+    ];
+    if(v.task)items.push({name:'Task',data:v.task});
+
+    html+=`<div class="validation-panel"><div class="panel-title">Валидация</div><div class="validation-grid">`;
+    items.forEach(it=>{
+      if(!it.data)return;
+      const ok=it.data.ok;
+      const cls=ok?'pass':'fail';
+      const icon=ok?'✓':'✗';
+      const issues=it.data.issues&&it.data.issues.length?` (${it.data.issues.length})`:'';
+      html+=`<div class="v-item ${cls}"><span class="v-icon">${icon}</span><span class="v-name">${escHtml(it.name)}</span><span class="v-status">${ok?'PASS':'FAIL'}${issues}</span></div>`;
+    });
+    html+=`</div>`;
+
+    // Show issues detail
+    const allIssues=items.filter(it=>it.data&&it.data.issues&&it.data.issues.length).flatMap(it=>it.data.issues.map(i=>({...i,validator:it.name})));
+    if(allIssues.length){
+      html+=`<div style="margin-top:8px;font-size:10px;color:var(--text-muted);max-height:80px;overflow-y:auto">`;
+      allIssues.forEach(i=>{
+        html+=`<div style="padding:2px 0"><span style="color:var(--error)">✗ ${escHtml(i.validator)}</span>: ${escHtml(i.message||i.code)}</div>`;
+      });
+      html+=`</div>`;
+    }
+    html+=`</div>`;
+  }
+
+  // Quality gate
+  if(msg.quality_gate){
+    const qg=msg.quality_gate;
+    html+=`<div style="margin:6px 0;padding:6px 10px;border-radius:4px;background:var(--bg-hover);font-size:11px">`;
+    html+=`<span style="color:var(--text-secondary);font-weight:600">Quality Gate:</span> `;
+    html+=`<span style="color:${qg.quality_gate_pass?'var(--success)':'var(--error)'}">${qg.quality_gate_pass?'PASS':'FAIL'}</span>`;
+    if(qg.syntax_pass!=null)html+=` · Syntax: <span style="color:${qg.syntax_pass?'var(--success)':'var(--error)'}">${qg.syntax_pass?'✓':'✗'}</span>`;
+    if(qg.lint_pass!=null)html+=` · Lint: <span style="color:${qg.lint_pass?'var(--success)':'var(--error)'}">${qg.lint_pass?'✓':'✗'}</span>`;
+    if(qg.format_pass!=null)html+=` · Format: <span style="color:${qg.format_pass?'var(--success)':'var(--error)'}">${qg.format_pass?'✓':'✗'}</span>`;
+    html+=`</div>`;
+  }
+
+  // KB usage
+  if(msg.kb_rules_used!=null||msg.kb_examples_used!=null){
+    html+=`<div style="margin:6px 0;padding:6px 10px;border-radius:4px;background:var(--bg-hover);font-size:11px">`;
+    html+=`<span style="color:var(--info);font-weight:600">Knowledge Pack:</span> `;
+    html+=`Правила: ${msg.kb_rules_used?'<span style="color:var(--success)">✓</span>':'<span style="color:var(--text-muted)">—</span>'}`;
+    html+=` · Примеры: ${msg.kb_examples_used?'<span style="color:var(--success)">✓</span>':'<span style="color:var(--text-muted)">—</span>'}`;
+    if(msg.kb_examples_count)html+=` (${msg.kb_examples_count})`;
+    if(msg.ir_used)html+=` · IR: <span style="color:var(--success)">✓</span>`;
+    html+=`</div>`;
+  }
+
+  // Plan info
+  if(msg.plan){
+    html+=`<div style="margin:6px 0;padding:6px 10px;border-radius:4px;background:var(--bg-hover);font-size:11px">`;
+    html+=`<span style="color:var(--warning);font-weight:600">Plan:</span> `;
+    html+=`тип=<span style="color:var(--text-primary)">${escHtml(msg.plan.task_type||'?')}</span>`;
+    html+=` · contract=<span style="color:var(--text-primary)">${escHtml(msg.plan.output_contract||'?')}</span>`;
+    if(msg.confidence!=null)html+=` · confidence=${(msg.confidence*100).toFixed(0)}%`;
+    html+=`</div>`;
+  }
+
+  // Clarification
+  if(msg.question&&(!msg.code||msg.status==='clarification_required')){
+    html+=`<div class="question-block"><div class="label">Уточнение</div>${escHtml(msg.question)}</div>`;
+  }
+  if(msg.acceptable_assumptions&&msg.acceptable_assumptions.length){
+    html+=`<div class="assumptions-block"><div class="label">Допущения</div>`;
+    msg.acceptable_assumptions.forEach(a=>{html+=`<div class="assumption-item" onclick="assumeAndContinue('${escAttr(a)}',${idx})">${escHtml(a)}</div>`});
+    html+=`</div>`;
+  }
+
+  // Code
+  if(msg.code){
+    html+=`<div class="code-block"><div class="code-header"><span class="lang-label">lua</span><button class="btn-copy" onclick="copyCode(this,${idx})" title="Копировать">📋 Copy</button></div><pre><code class="language-lua">${escHtml(msg.code)}</code></pre></div>`;
+  }
+
+  // Status badges
+  if(msg.status&&msg.code){
+    const smap={generated:{label:'Сгенерирован',cls:'generated'},repaired:{label:'Отремонтирован',cls:'repaired'},clarification_required:{label:'Требуется уточнение',cls:'clarification_required'}};
+    const s=smap[msg.status]||{label:msg.status,cls:'warn'};
+    html+=`<span class="badge ${s.cls}">${s.label}</span>`;
+    if(msg.used_repair)html+=` <span class="badge warn">Repair ✓</span>`;
+    if(msg.repair_iterations)html+=` <span class="badge info">Repair итераций: ${msg.repair_iterations}</span>`;
+    if(msg.candidates_generated)html+=` <span class="badge info">Кандидатов: ${msg.candidates_generated}</span>`;
+    if(msg.latency_ms)html+=` <span class="badge info">⏱ ${Math.round(msg.latency_ms)}ms</span>`;
+  }
+
+  return html;
 }
 
-const input = document.getElementById('msgInput');
-input.addEventListener('input', () => autoResize(input));
+function renderMeta(msg,idx){
+  let html='<div class="msg-meta">';
+  if(msg.status)html+=`<button class="btn-regen" onclick="regenerate(${idx})" title="Перегенерировать">↻ Regenerate</button>`;
+  html+='</div>';return html;
+}
 
-checkHealth();
-loadModels();
+function copyCode(btn,msgIdx){
+  const sess=getActive();if(!sess)return;
+  const msg=sess.messages[msgIdx];if(!msg||!msg.code)return;
+  navigator.clipboard.writeText(msg.code).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='📋 Copy';btn.classList.remove('copied')},2000)});
+}
+
+function showTyping(){
+  const container=document.getElementById('messagesContainer');
+  const el=document.createElement('div');el.className='msg-row assistant';el.id='typingRow';
+  el.innerHTML=`<div class="msg-bubble"><div class="typing-indicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>`;
+  container.appendChild(el);container.scrollTop=container.scrollHeight;
+}
+function removeTyping(){const el=document.getElementById('typingRow');if(el)el.remove()}
+function showToast(msg){const el=document.createElement('div');el.className='error-toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),4000)}
+function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function escAttr(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;')}
+
+async function checkHealth(){
+  const dot=document.getElementById('healthDot');const txt=document.getElementById('healthText');
+  try{
+    const res=await fetch(API_BASE+'/health');const data=await res.json();
+    dot.className='health-dot '+(data.status==='ok'?'ok':'degraded');
+    txt.textContent=`${data.status.toUpperCase()} · ${data.default_model}`;
+  }catch{dot.className='health-dot error';txt.textContent='OFFLINE'}
+}
+
+async function loadResources(){
+  const widget=document.getElementById('resourceWidget');
+  try{
+    const res=await fetch(API_BASE+'/resources');const data=await res.json();
+    let html='';
+    // VRAM
+    if(data.vram&&data.vram.length){
+      data.vram.forEach(g=>{
+        const pct=g.load_percent!=null?g.load_percent:(g.vram_used_mb&&g.vram_total_mb?Math.round(g.vram_used_mb/g.vram_total_mb*100):null);
+        html+=`<div class="rb-row"><span class="rb-label">GPU</span><div class="rb-track"><div class="rb-fill gpu" style="width:${pct||0}%"></div></div><span class="rb-value">${g.vram_used_mb?Math.round(g.vram_used_mb)+'MB':'—'} / ${g.vram_total_mb?Math.round(g.vram_total_mb)+'MB':'—'}</span></div>`;
+      });
+    }
+    // RAM
+    if(data.ram_used_gb!=null&&data.ram_total_gb!=null){
+      const pct=Math.round(data.ram_used_gb/data.ram_total_gb*100);
+      html+=`<div class="rb-row"><span class="rb-label">RAM</span><div class="rb-track"><div class="rb-fill ram" style="width:${pct}%"></div></div><span class="rb-value">${data.ram_used_gb.toFixed(1)}GB / ${data.ram_total_gb.toFixed(1)}GB</span></div>`;
+    }
+    // Running models
+    if(data.running_models&&data.running_models.length){
+      html+=`<div style="margin-top:4px;color:var(--text-secondary)">Модели: ${data.running_models.map(m=>escHtml(m)).join(', ')}</div>`;
+    }
+    widget.innerHTML=html||'<span style="color:var(--text-muted)">Ресурсы: нет данных</span>';
+  }catch{widget.innerHTML=''}
+}
+
+async function loadModels(){
+  const sel=document.getElementById('modelSelect');
+  try{
+    const res=await fetch(API_BASE+'/models');const data=await res.json();
+    const models=data.allowed_models||data.installed_models||[];
+    sel.innerHTML='<option value="">Default: '+(data.required_demo_model||'—')+'</option>';
+    models.forEach(m=>{
+      const installed=(data.installed_models||[]).includes(m);
+      const opt=document.createElement('option');opt.value=m;opt.textContent=m+(installed?'':' ⚠');sel.appendChild(opt);
+    });
+  }catch{}
+}
+
+const input=document.getElementById('msgInput');
+input.addEventListener('input',()=>autoResize(input));
+
+checkHealth();loadModels();loadResources();
+setInterval(()=>{loadResources();checkHealth()},5000);
 renderSidebar();
-if (activeId && sessions[activeId]) renderChat();
-else document.getElementById('emptyState') || renderChat();
+if(activeId&&sessions[activeId])renderChat();
 </script>
 </body>
 </html>

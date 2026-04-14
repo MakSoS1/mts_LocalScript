@@ -14,6 +14,15 @@ class GenerateRequest(BaseModel):
 
 class GenerateResponse(BaseModel):
     code: str
+    validation: ValidationReportFull | None = None
+    quality_gate: QualityGateResult | None = None
+    pipeline_steps: list[PipelineStep] = Field(default_factory=list)
+    latency_ms: float | None = None
+    used_repair: bool | None = None
+    request_mode: str | None = None
+    task_type: str | None = None
+    candidates_generated: int | None = None
+    ir_used: bool | None = None
 
 
 class AgentGenerateRequest(BaseModel):
@@ -37,6 +46,33 @@ class AgentGenerateRequest(BaseModel):
     )
 
 
+class ValidationDetail(BaseModel):
+    ok: bool
+    issues: list[dict] = Field(default_factory=list)
+
+
+class ValidationReportFull(BaseModel):
+    output: ValidationDetail = Field(default_factory=lambda: ValidationDetail(ok=True))
+    contract: ValidationDetail = Field(default_factory=lambda: ValidationDetail(ok=True))
+    domain: ValidationDetail = Field(default_factory=lambda: ValidationDetail(ok=True))
+    syntax: ValidationDetail = Field(default_factory=lambda: ValidationDetail(ok=True))
+    task: ValidationDetail | None = None
+
+
+class PipelineStep(BaseModel):
+    name: str
+    status: str = "pending"
+    duration_ms: float | None = None
+    detail: str | None = None
+
+
+class QualityGateResult(BaseModel):
+    syntax_pass: bool | None = None
+    lint_pass: bool | None = None
+    format_pass: bool | None = None
+    quality_gate_pass: bool | None = None
+
+
 class AgentGenerateResponse(BaseModel):
     status: str
     code: str | None = None
@@ -45,6 +81,40 @@ class AgentGenerateResponse(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     output_contract: str | None = None
     used_repair: bool = False
+    request_mode: str | None = None
+    benchmark_mode: str | None = None
+    task_type: str | None = None
+    confidence: float | None = None
+    needs_clarification: bool | None = None
+    plan: dict | None = None
+    validation: ValidationReportFull | None = None
+    quality_gate: QualityGateResult | None = None
+    pipeline_steps: list[PipelineStep] = Field(default_factory=list)
+    latency_ms: float | None = None
+    candidates_generated: int | None = None
+    ir_used: bool | None = None
+    kb_rules_used: bool | None = None
+    kb_examples_used: bool | None = None
+    kb_examples_count: int | None = None
+    repair_iterations: int | None = None
+    repair_issues: list[dict] | None = None
+
+
+class VramInfo(BaseModel):
+    model: str
+    vram_used_mb: float | None = None
+    vram_total_mb: float | None = None
+    load_percent: float | None = None
+    available: bool = True
+
+
+class ResourceResponse(BaseModel):
+    ollama_ok: bool
+    running_models: list[str]
+    vram: list[VramInfo] = Field(default_factory=list)
+    cpu_percent: float | None = None
+    ram_used_gb: float | None = None
+    ram_total_gb: float | None = None
 
 
 class HealthResponse(BaseModel):
